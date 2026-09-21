@@ -27,18 +27,21 @@ export async function GET(req: NextRequest) {
 
     if (isSupabaseConfigured() && supabase) {
       try {
-        const { data, count, error } = await supabase
+        // Query real select id limit 1 para evitar falso positivo do HEAD no PostgREST
+        const { data, error } = await supabase
           .from('offers')
-          .select('id', { count: 'exact', head: true });
+          .select('id')
+          .limit(1);
 
         if (error) {
-          supabaseError = error.message || error.code || 'Unknown Supabase error';
+          supabaseError = `${error.code || 'ERROR'}: ${error.message}`;
           supabaseReachable = true;
           tableExists = false;
         } else {
           supabaseReachable = true;
           tableExists = true;
-          supabaseDirectCount = count ?? 0;
+          const { count } = await supabase.from('offers').select('*', { count: 'exact', head: true });
+          supabaseDirectCount = count ?? (data ? data.length : 0);
         }
       } catch (err: any) {
         supabaseError = err.message;
@@ -63,7 +66,13 @@ export async function GET(req: NextRequest) {
     }
 
     // Counts via dbService
-    const serverOffers = await dbService.getOffers();
+    let serverOffers: any[] = [];
+    let serverOffersError: string | null = null;
+    try {
+      serverOffers = await dbService.getOffers();
+    } catch (err: any) {
+      serverOffersError = err.message;
+    }
     const batches = await dbService.getBatches();
     const mappingBatches = await dbService.getMappingBatches();
 
@@ -84,6 +93,7 @@ export async function GET(req: NextRequest) {
       organizationId: null,
       offersVisibleToCurrentSession: serverOffers.length,
       offersTotalServerSide: serverOffers.length,
+      serverOffersError,
       importsVisible: batches.length,
       mappingRecordsVisible: mappingBatches.length,
       envAudit: {

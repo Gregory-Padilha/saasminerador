@@ -212,10 +212,14 @@ export default function DashboardPage() {
               </div>
               <div>
                 <span className="text-3xl font-extrabold text-white font-mono block">
-                  {summary.kpis.totalBase}
+                  {loadError ? '--' : summary.kpis.totalBase}
                 </span>
                 <span className="text-[11px] text-slate-400 block mt-0.5">
-                  {summary.kpis.activeOffers} ativas · {summary.kpis.archivedOffers} arquivadas
+                  {loadError ? (
+                    <span className="text-rose-400 font-semibold">Erro ao consultar Supabase</span>
+                  ) : (
+                    `${summary.kpis.activeOffers} ativas · ${summary.kpis.archivedOffers} arquivadas`
+                  )}
                 </span>
               </div>
             </div>

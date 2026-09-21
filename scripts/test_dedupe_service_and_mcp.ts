@@ -1,6 +1,29 @@
 // ==============================================================================
 // TEST SUITE: DEDUPE SERVICE & MCP INTEGRATION FOR GPT WORK
 // ==============================================================================
+import * as fs from 'fs';
+import * as path from 'path';
+
+function loadEnvFile(filePath: string) {
+  if (fs.existsSync(filePath)) {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    content.split('\n').forEach((line) => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx !== -1) {
+          const key = trimmed.substring(0, eqIdx).trim();
+          const val = trimmed.substring(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+          if (!process.env[key]) process.env[key] = val;
+        }
+      }
+    });
+  }
+}
+
+loadEnvFile(path.resolve(process.cwd(), '.env'));
+loadEnvFile(path.resolve(process.cwd(), '.env.local'));
+
 import { OfferDuplicateService, canonicalizeOfferUrl, normalizeOfferName } from '../src/lib/offer/offer-duplicate-service';
 import { executeAiTool, AI_TOOLS_LIST } from '../src/lib/ai-tools/registry';
 import { MCP_TOOLS, executeMcpTool } from '../src/lib/mcp/tools';

@@ -47,9 +47,9 @@ export function Topbar() {
             setHealthTooltip('Database ✓ · Session ✓ · Workspace ✓ · Data Access ✓');
             setHealthDotClass('bg-emerald-400 animate-pulse');
           } else {
-            setHealthLabel('Banco Conectado · Acesso Limitado');
-            setHealthTooltip(`Supabase Conectado, mas tabelas ausentes ou RLS: ${data.supabaseConnection?.error || 'PGRST205'}`);
-            setHealthDotClass('bg-amber-400');
+            setHealthLabel('DATABASE_SCHEMA_ERROR');
+            setHealthTooltip(`Supabase Conectado, mas tabelas ausentes no schema public: ${data.supabaseConnection?.error || 'PGRST205'}`);
+            setHealthDotClass('bg-rose-500');
           }
         } else {
           if (data.environment === 'production') {

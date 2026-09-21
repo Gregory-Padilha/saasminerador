@@ -68,4 +68,5 @@ web-ui/tmp/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
+# supabase temp
+supabase/.temp/

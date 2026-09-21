@@ -1,27 +1,56 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || '';
-const supabaseAnonKey = (
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  ''
-).trim();
+function getSupabaseUrl(): string {
+  return (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+}
+
+function getSupabaseKey(): string {
+  return (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
+}
 
 export const isSupabaseConfigured = (): boolean => {
-  if (!supabaseUrl || !supabaseAnonKey) return false;
+  const url = getSupabaseUrl();
+  const key = getSupabaseKey();
+  if (!url || !key) return false;
   if (
-    supabaseUrl.includes('your-project') ||
-    supabaseUrl.includes('placeholder') ||
-    supabaseUrl.includes('example.com') ||
-    supabaseAnonKey.includes('your-anon-public-key') ||
-    supabaseAnonKey.length < 20
+    url.includes('your-project') ||
+    url.includes('placeholder') ||
+    url.includes('example.com') ||
+    key.includes('your-anon-public-key') ||
+    key.length < 20
   ) {
     return false;
   }
-  return supabaseUrl.startsWith('https://');
+  return url.startsWith('https://');
 };
 
-export const supabase = isSupabaseConfigured()
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+let _cachedClient: SupabaseClient | null = null;
+let _cachedUrl = '';
+let _cachedKey = '';
 
+export function getSupabaseClient(): SupabaseClient | null {
+  if (!isSupabaseConfigured()) return null;
+  const currentUrl = getSupabaseUrl();
+  const currentKey = getSupabaseKey();
+
+  if (!_cachedClient || _cachedUrl !== currentUrl || _cachedKey !== currentKey) {
+    _cachedClient = createClient(currentUrl, currentKey);
+    _cachedUrl = currentUrl;
+    _cachedKey = currentKey;
+  }
+  return _cachedClient;
+}
+
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    const client = getSupabaseClient();
+    if (!client) return undefined;
+    const val = (client as any)[prop];
+    return typeof val === 'function' ? val.bind(client) : val;
+  },
+});

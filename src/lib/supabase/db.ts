@@ -127,6 +127,10 @@ export function isBadTestOffer(o: any): boolean {
   return false;
 }
 
+export function isLocalBackend(): boolean {
+  return process.env.DATA_BACKEND === 'local';
+}
+
 function getStoreFileName(): string {
   const isTest = process.env.NODE_ENV === 'test' || process.env.IS_TEST_RUN === 'true';
   return isTest ? 'test_store.json' : 'store.json';
@@ -203,6 +207,12 @@ function getLocal<T>(key: string, fallback: T): T {
 }
 
 function setLocal<T>(key: string, value: T): void {
+  // REGRA ARQUITETURAL (FASE 18): Quando em modo Supabase (DATA_BACKEND !== 'local'),
+  // NUNCA gravar no store local (.data/store.json) para eliminar split-brain de persistência!
+  if (!isLocalBackend() && typeof window === 'undefined') {
+    return;
+  }
+
   let finalValue = value;
   if (key === STORAGE_KEYS.OFFERS && Array.isArray(value)) {
     finalValue = value.filter((o: any) => !isBadTestOffer(o)) as any;
@@ -300,46 +310,7 @@ export const dbService = {
   async getOffers(filters?: Partial<OfferFiltersState>): Promise<Offer[]> {
     let allOffers: Offer[] = [];
 
-    if (isSupabaseConfigured() && supabase) {
-      try {
-        const { data, error } = await supabase
-          .from('offers')
-          .select(`
-            *,
-            snapshots:offer_snapshots(*),
-            creatives:offer_creatives(*),
-            deliverables:offer_deliverables(*),
-            bonuses:offer_bonuses(*),
-            order_bumps:offer_order_bumps(*),
-            upsells:offer_upsells(*),
-            funnel_steps:offer_funnel_steps(*),
-            frontend_options:offer_frontend_options(*),
-            analysis:offer_analysis(*)
-          `)
-          .order('created_at', { ascending: false });
-
-        if (!error && data) {
-          allOffers = data as Offer[];
-          this._lastError = null;
-        } else if (error) {
-          this._lastError = {
-            code: error.code,
-            message: error.message,
-            timestamp: new Date().toISOString(),
-          };
-          console.error('Supabase getOffers query error:', error.message || error.code);
-        }
-      } catch (err: any) {
-        this._lastError = {
-          message: err?.message || 'Erro desconhecido ao conectar com Supabase',
-          timestamp: new Date().toISOString(),
-        };
-        console.warn('Supabase getOffers exception:', err);
-      }
-    }
-
-    // Fallback to local storage if Supabase is not configured or returned empty
-    if (!isSupabaseConfigured() || allOffers.length === 0) {
+    if (isLocalBackend()) {
       let localOffers = getLocal<Offer[]>(STORAGE_KEYS.OFFERS, []);
 
       // Auto-purge any demo data if present
@@ -350,26 +321,6 @@ export const dbService = {
 
       // Guarantee newest first (created_at DESC)
       localOffers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-      // Sync server-persisted offers into local storage with authoritative reconciliation
-      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
-        try {
-          const apiRes = await fetch('/api/offers');
-          if (apiRes.ok) {
-            const apiData = await apiRes.json();
-            if (apiData?.success && Array.isArray(apiData.offers)) {
-              const serverOffers: Offer[] = apiData.offers.filter((s: Offer) => !isBadTestOffer(s));
-              // AUTHORITATIVE RECONCILIATION: Server is canonical source of truth for offers!
-              // Never perform a union that preserves or resurrects deleted offers in local storage.
-              localOffers = serverOffers;
-              localOffers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-              setLocal(STORAGE_KEYS.OFFERS, localOffers);
-            }
-          }
-        } catch {
-          // ignore offline / network error
-        }
-      }
 
       const snapshots = getLocal<OfferSnapshot[]>(STORAGE_KEYS.SNAPSHOTS, []);
       const creatives = getLocal<OfferCreative[]>(STORAGE_KEYS.CREATIVES, []);
@@ -408,6 +359,56 @@ export const dbService = {
           activity_status: deriveActivityStatus(offer.last_seen_at || offer.last_imported_at || offer.created_at),
         };
       });
+    } else {
+      // REGRA ARQUITETURAL (FASE 16 & 17): Supabase é o backend CANÔNICO OBRIGATÓRIO
+      if (!isSupabaseConfigured() || !supabase) {
+        this._lastError = {
+          message: 'Supabase não configurado no ambiente. Configure NEXT_PUBLIC_SUPABASE_URL.',
+          timestamp: new Date().toISOString(),
+        };
+        throw new Error(this._lastError.message);
+      }
+
+      const { data, error } = await supabase
+        .from('offers')
+        .select(`
+          *,
+          snapshots:offer_snapshots(*),
+          creatives:offer_creatives(*),
+          deliverables:offer_deliverables(*),
+          bonuses:offer_bonuses(*),
+          order_bumps:offer_order_bumps(*),
+          upsells:offer_upsells(*),
+          funnel_steps:offer_funnel_steps(*),
+          frontend_options:offer_frontend_options(*),
+          analysis:offer_analysis(*)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        this._lastError = {
+          code: error.code,
+          message: error.message,
+          timestamp: new Date().toISOString(),
+        };
+        console.error('Supabase getOffers query error:', error.message || error.code);
+        throw new Error(`Falha ao consultar ofertas no Supabase: ${error.message} (${error.code})`);
+      }
+
+      this._lastError = null;
+      allOffers = ((data || []) as any[]).map((offer) => {
+        const offerSnapshots = (offer.snapshots || []).sort(
+          (a: any, b: any) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime()
+        );
+        const momentumInfo = calculateMomentumScore(offer.active_ads_count ?? null, offerSnapshots);
+        return {
+          ...offer,
+          snapshots: offerSnapshots,
+          trend: offer.trend || momentumInfo.trend,
+          momentum_score: offer.momentum_score ?? momentumInfo.momentumScore,
+          activity_status: deriveActivityStatus(offer.last_seen_at || offer.last_imported_at || offer.created_at),
+        };
+      }) as Offer[];
     }
 
     if (!filters) return allOffers;
@@ -1114,12 +1115,16 @@ export const dbService = {
       is_demo_data: false,
     };
 
-    if (isSupabaseConfigured() && supabase) {
-      try {
-        await supabase.from('offers').upsert(fullOffer);
-      } catch (err) {
-        console.warn('Supabase saveOffer error:', err);
+    if (!isLocalBackend()) {
+      if (!isSupabaseConfigured() || !supabase) {
+        throw new Error('Supabase não configurado para salvar oferta.');
       }
+      const { error: saveError } = await supabase.from('offers').upsert(fullOffer);
+      if (saveError) {
+        console.error('Supabase saveOffer error:', saveError);
+        throw new Error(`Erro ao salvar oferta no Supabase: ${saveError.message}`);
+      }
+      return fullOffer;
     }
 
     const offers = getLocal<Offer[]>(STORAGE_KEYS.OFFERS, []);

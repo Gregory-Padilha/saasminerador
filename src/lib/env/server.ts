@@ -1,4 +1,10 @@
-import 'server-only';
+try {
+  if (process.env.NEXT_RUNTIME) {
+    require('server-only');
+  }
+} catch {
+  // ignore outside Next.js runtime
+}
 
 /**
  * ==============================================================================
