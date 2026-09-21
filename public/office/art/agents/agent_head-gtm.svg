@@ -1,0 +1,16 @@
+<svg width="48" height="56" xmlns="http://www.w3.org/2000/svg">
+    <!-- Drop Shadow -->
+    <ellipse cx="24" cy="48" rx="14" ry="5" fill="#000000" opacity="0.4"/>
+    <!-- Legs / Pants -->
+    <rect x="18" y="32" width="5" height="14" rx="2" fill="#0f172a"/>
+    <rect x="25" y="32" width="5" height="14" rx="2" fill="#0f172a"/>
+    <!-- Torso / Jacket -->
+    <rect x="14" y="18" width="20" height="16" rx="4" fill="#1e293b" stroke="#10b981" stroke-width="2"/>
+    <!-- Hair Base -->
+    <circle cx="24" cy="11" r="10" fill="#047857"/>
+    <!-- Face / Head -->
+    <circle cx="24" cy="12" r="8" fill="#f8fafc"/>
+    <ellipse cx="24" cy="8" rx="9" ry="5" fill="#047857"/>
+    <!-- Visor / Glasses Accent -->
+    <rect x="19" y="10" width="10" height="3" rx="1" fill="#10b981"/>
+  </svg>

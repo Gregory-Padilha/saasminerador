@@ -1,0 +1,9 @@
+<svg width="110" height="45" xmlns="http://www.w3.org/2000/svg">
+  <rect x="5" y="8" width="100" height="30" rx="8" fill="#581c87" stroke="#a855f7" stroke-width="2"/>
+  <!-- Cushions -->
+  <rect x="12" y="12" width="40" height="20" rx="4" fill="#6b21a8" stroke="#a855f7" stroke-width="1"/>
+  <rect x="58" y="12" width="40" height="20" rx="4" fill="#6b21a8" stroke="#a855f7" stroke-width="1"/>
+  <!-- Armrests -->
+  <rect x="5" y="8" width="10" height="28" rx="4" fill="#3b0764"/>
+  <rect x="95" y="8" width="10" height="28" rx="4" fill="#3b0764"/>
+</svg>

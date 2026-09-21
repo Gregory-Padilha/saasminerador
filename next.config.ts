@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  outputFileTracingExcludes: {
+    '*': ['./web-ui/**'],
+  },
 };
 
 export default nextConfig;

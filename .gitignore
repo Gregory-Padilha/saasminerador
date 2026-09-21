@@ -30,8 +30,37 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (NEVER commit secrets or API keys)
+.env
 .env*
+*.env
+**/.env*
+web-ui/.env*
+web-ui/.env.save
+
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*/.venv/
+venv/
+*/venv/
+*.pkl
+
+# Local runtime data & caches
+/.data/
+/scratch/
+/tmp/
+web-ui/tmp/
+*.zip
+*.tar.gz
+
+# Local media uploads & scraper diagnostics
+/public/uploads/*
+!/public/uploads/.gitkeep
+/public/diagnostics/*
+!/public/diagnostics/.gitkeep
 
 # vercel
 .vercel
@@ -39,3 +68,4 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
