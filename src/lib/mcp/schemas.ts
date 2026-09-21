@@ -165,3 +165,28 @@ export const ListKnowledgeDocumentsSchema = z.object({
   limit: z.number().min(1).max(100).default(20),
 });
 
+export const CheckOfferDuplicateSchema = z.object({
+  offer_name: z.string().nullable().optional(),
+  advertiser: z.string().nullable().optional(),
+  landing_page_url: z.string().nullable().optional(),
+  checkout_url: z.string().nullable().optional(),
+  meta_ads_url: z.string().nullable().optional(),
+  meta_ad_id: z.string().nullable().optional(),
+  meta_page_id: z.string().nullable().optional(),
+});
+
+export const CandidateOfferSchema = z.object({
+  candidate_id: z.string().min(1, 'candidate_id é obrigatório'),
+  offer_name: z.string().nullable().optional(),
+  advertiser: z.string().nullable().optional(),
+  landing_page_url: z.string().nullable().optional(),
+  checkout_url: z.string().nullable().optional(),
+  meta_ads_url: z.string().nullable().optional(),
+  meta_ad_id: z.string().nullable().optional(),
+  meta_page_id: z.string().nullable().optional(),
+});
+
+export const CheckOffersDuplicatesSchema = z.object({
+  candidates: z.array(CandidateOfferSchema).max(50, 'Máximo de 50 candidatos por chamada'),
+});
+

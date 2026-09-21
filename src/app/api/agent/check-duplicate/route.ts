@@ -1,107 +1,74 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { dbService } from '@/lib/supabase/db';
+import { OfferDuplicateService } from '@/lib/offer/offer-duplicate-service';
 
 export const runtime = 'nodejs';
-
-function normalize(str?: string | null): string {
-  if (!str) return '';
-  return str
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-}
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const url = searchParams.get('url') || '';
-    const name = searchParams.get('name') || '';
-    const metaAdId = searchParams.get('metaAdId') || searchParams.get('adId') || '';
+    const url = searchParams.get('url') || searchParams.get('landing_page_url') || '';
+    const checkoutUrl = searchParams.get('checkout_url') || '';
+    const name = searchParams.get('name') || searchParams.get('offer_name') || '';
+    const advertiser = searchParams.get('advertiser') || '';
+    const metaAdId = searchParams.get('metaAdId') || searchParams.get('adId') || searchParams.get('meta_ad_id') || '';
+    const metaAdsUrl = searchParams.get('meta_ads_url') || '';
 
-    if (!url && !name && !metaAdId) {
+    if (!url && !name && !metaAdId && !checkoutUrl && !metaAdsUrl) {
       return NextResponse.json(
-        { success: false, error: 'Pelo menos um parâmetro (url, name ou metaAdId) deve ser fornecido.' },
+        { success: false, error: 'Pelo menos um parâmetro (url, name, checkout_url, meta_ad_id) deve ser fornecido.' },
         { status: 400 }
       );
     }
 
-    const offers = await dbService.getOffers();
+    const checkResult = await OfferDuplicateService.checkOne({
+      offer_name: name || null,
+      advertiser: advertiser || null,
+      landing_page_url: url || null,
+      checkout_url: checkoutUrl || null,
+      meta_ads_url: metaAdsUrl || null,
+      meta_ad_id: metaAdId || null,
+    });
 
-    let duplicateOffer = null;
-    let matchReason = '';
-
-    const normName = normalize(name);
-    let targetDomain = '';
-    if (url) {
-      try {
-        targetDomain = new URL(url).hostname.replace('www.', '').toLowerCase();
-      } catch {
-        targetDomain = '';
-      }
-    }
-
-    for (const o of offers) {
-      // 1. Meta Ad ID match
-      if (metaAdId && (o.meta_ad_seed_id === metaAdId || o.meta_ads_url?.includes(metaAdId))) {
-        duplicateOffer = o;
-        matchReason = `Meta Ad ID idêntico (${metaAdId})`;
-        break;
-      }
-
-      // 2. Exact Landing Page URL match
-      if (url && o.landing_page_url) {
-        const normLp = normalize(o.landing_page_url);
-        const normTarget = normalize(url);
-        if (normLp === normTarget || normLp.includes(normTarget) || normTarget.includes(normLp)) {
-          duplicateOffer = o;
-          matchReason = `URL da Landing Page correspondente (${o.landing_page_url})`;
-          break;
-        }
-      }
-
-      // 3. Same domain + exact or very similar product name
-      if (targetDomain && o.landing_page_url) {
-        try {
-          const offerDomain = new URL(o.landing_page_url).hostname.replace('www.', '').toLowerCase();
-          if (offerDomain === targetDomain && normName && normalize(o.product_name) === normName) {
-            duplicateOffer = o;
-            matchReason = `Mesmo domínio (${targetDomain}) e mesmo nome de produto (${o.product_name})`;
-            break;
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      // 4. Exact product name match if name is specific (> 6 chars)
-      if (normName && normName.length > 6 && normalize(o.product_name) === normName) {
-        duplicateOffer = o;
-        matchReason = `Nome do produto idêntico (${o.product_name})`;
-        break;
-      }
-    }
+    const isDuplicate = checkResult.status === 'DUPLICATE';
+    const isPossible = checkResult.status === 'POSSIBLE_DUPLICATE';
+    const matched = checkResult.matches[0] || null;
 
     return NextResponse.json({
       success: true,
-      isDuplicate: Boolean(duplicateOffer),
-      matchReason: matchReason || null,
-      existingOffer: duplicateOffer
+      status: checkResult.status,
+      isDuplicate,
+      isPossibleDuplicate: isPossible,
+      confidenceBasis: checkResult.confidence_basis,
+      matchReason: checkResult.confidence_basis.join(', ') || null,
+      matches: checkResult.matches,
+      existingOffer: matched
         ? {
-            id: duplicateOffer.id,
-            name: duplicateOffer.product_name,
-            advertiser: duplicateOffer.advertiser,
-            niche: duplicateOffer.niche,
-            price: duplicateOffer.price,
-            landingPageUrl: duplicateOffer.landing_page_url,
+            id: matched.offer_id,
+            name: matched.offer_name,
+            advertiser: matched.advertiser,
+            landingPageUrl: matched.landing_page_url,
+            activeAdsCount: matched.active_ads_count,
           }
         : null,
     });
   } catch (err: any) {
-    console.error('[GET /api/agent/check-duplicate Error]:', err);
-    return NextResponse.json(
-      { success: false, error: err.message || 'Falha ao verificar duplicata.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    if (Array.isArray(body.candidates)) {
+      const bulkResult = await OfferDuplicateService.checkMany({
+        candidates: body.candidates,
+      });
+      return NextResponse.json({ success: true, ...bulkResult });
+    }
+
+    const checkResult = await OfferDuplicateService.checkOne(body);
+    return NextResponse.json({ success: true, ...checkResult });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

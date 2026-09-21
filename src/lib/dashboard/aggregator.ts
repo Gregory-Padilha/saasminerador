@@ -4,6 +4,7 @@
 
 import { Offer, OfferAdMedia, OfferCreative } from '@/types';
 import { dbService } from '@/lib/supabase/db';
+import { isSupabaseConfigured } from '@/lib/supabase/client';
 import { calculateMedian } from '@/lib/utils';
 import {
   normalizeNicheName,
@@ -16,6 +17,13 @@ export type PeriodFilter = '7d' | '30d' | 'all';
 export interface DashboardSummary {
   period: PeriodFilter;
   lastUpdated: string;
+
+  // Diagnostic status to prevent masking errors as zero
+  dataStatus: {
+    status: 'ONLINE' | 'LOCAL_FALLBACK' | 'EMPTY' | 'ERROR' | 'UNCONFIGURED';
+    errorMessage?: string;
+    details?: string;
+  };
 
   // A. Main KPIs
   kpis: {
@@ -442,9 +450,42 @@ export async function getDashboardSummary(period: PeriodFilter = '7d'): Promise<
     });
   });
 
+  let dataStatus: DashboardSummary['dataStatus'];
+  const dbError = (dbService as any).getLastError ? (dbService as any).getLastError() : null;
+
+  if (dbError) {
+    dataStatus = {
+      status: 'ERROR',
+      errorMessage: dbError.message || 'Erro ao consultar o banco de dados Supabase.',
+      details: dbError.code,
+    };
+  } else if (!isSupabaseConfigured()) {
+    if (offers.length > 0) {
+      dataStatus = {
+        status: 'LOCAL_FALLBACK',
+        details: 'Executando em Modo Local. Supabase não configurado neste ambiente.',
+      };
+    } else {
+      dataStatus = {
+        status: 'UNCONFIGURED',
+        errorMessage: 'Supabase não configurado no ambiente de produção e armazenamento local vazio.',
+      };
+    }
+  } else if (offers.length === 0) {
+    dataStatus = {
+      status: 'EMPTY',
+      details: 'Conectado ao Supabase, mas nenhuma oferta foi encontrada na tabela.',
+    };
+  } else {
+    dataStatus = {
+      status: 'ONLINE',
+    };
+  }
+
   return {
     period,
     lastUpdated: new Date().toISOString(),
+    dataStatus,
     kpis: {
       totalBase: offers.length,
       activeOffers: activeOffers.length,

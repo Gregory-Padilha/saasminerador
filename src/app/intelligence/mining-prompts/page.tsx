@@ -835,9 +835,9 @@ export default function WorkerPromptStudioPage() {
                 <div className="p-5 space-y-3 text-xs">
                   <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
                     <div>
-                      <span className="font-bold text-slate-200 block">EXCLUIR OFERTAS JÁ MINERADAS</span>
+                      <span className="font-bold text-slate-200 block">IGNORAR OFERTAS EXISTENTES NO OFFER MINER</span>
                       <span className="text-[10px] text-slate-500">
-                        Injetar manifesto de {compiledResult?.manifest?.length || 0} ofertas mapeadas no Offer Miner
+                        Instrui o GPT Work a chamar a ferramenta MCP <code className="text-cyan-400">check_offers_duplicates</code> antes de validar candidatos (+ manifesto de {compiledResult?.manifest?.length || 0} ofertas)
                       </span>
                     </div>
                     <input

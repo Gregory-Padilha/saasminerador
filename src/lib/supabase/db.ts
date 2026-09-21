@@ -135,8 +135,9 @@ function getStoreFileName(): string {
 function readServerStore(): Record<string, string> {
   if (typeof window !== 'undefined') return {};
   try {
-    const fs = require('fs');
-    const path = require('path');
+    const nodeRequire = eval('require');
+    const fs = nodeRequire('fs');
+    const path = nodeRequire('path');
     const dataDir = path.resolve(process.cwd(), '.data');
     const dataFile = path.join(dataDir, getStoreFileName());
     if (!fs.existsSync(dataDir)) {
@@ -155,8 +156,9 @@ function readServerStore(): Record<string, string> {
 function writeServerStore(store: Record<string, string>) {
   if (typeof window !== 'undefined') return;
   try {
-    const fs = require('fs');
-    const path = require('path');
+    const nodeRequire = eval('require');
+    const fs = nodeRequire('fs');
+    const path = nodeRequire('path');
     const dataDir = path.resolve(process.cwd(), '.data');
     const dataFile = path.join(dataDir, getStoreFileName());
     if (!fs.existsSync(dataDir)) {
@@ -237,6 +239,14 @@ function generateId(): string {
 }
 
 export const dbService = {
+  _lastError: null as { code?: string; message: string; timestamp: string } | null,
+  getLastError() {
+    return this._lastError;
+  },
+  clearLastError() {
+    this._lastError = null;
+  },
+
   // --------------------------------------------------------------------------
   // USER SETTINGS
   // --------------------------------------------------------------------------
@@ -310,9 +320,21 @@ export const dbService = {
 
         if (!error && data) {
           allOffers = data as Offer[];
+          this._lastError = null;
+        } else if (error) {
+          this._lastError = {
+            code: error.code,
+            message: error.message,
+            timestamp: new Date().toISOString(),
+          };
+          console.error('Supabase getOffers query error:', error.message || error.code);
         }
-      } catch (err) {
-        console.warn('Supabase getOffers error:', err);
+      } catch (err: any) {
+        this._lastError = {
+          message: err?.message || 'Erro desconhecido ao conectar com Supabase',
+          timestamp: new Date().toISOString(),
+        };
+        console.warn('Supabase getOffers exception:', err);
       }
     }
 

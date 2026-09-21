@@ -47,6 +47,8 @@ export default function DashboardPage() {
   const [isPending, startTransition] = useTransition();
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   // Featured Offers active tab
   const [featuredTab, setFeaturedTab] = useState<
     'topAds' | 'longestRunning' | 'newWithVolume' | 'mostCreatives' | 'recentlyUpdated'
@@ -63,11 +65,18 @@ export default function DashboardPage() {
 
   const loadSummary = async (p: PeriodFilter, showSpinner = true) => {
     if (showSpinner) setIsLoading(true);
+    setLoadError(null);
     try {
       const data = await getDashboardSummary(p);
       setSummary(data);
-    } catch (err) {
+      if (data.dataStatus?.status === 'ERROR') {
+        setLoadError(data.dataStatus.errorMessage || 'Falha ao consultar banco de dados Supabase.');
+      } else if (data.dataStatus?.status === 'UNCONFIGURED') {
+        setLoadError('Produção desconectada do Supabase: variáveis de ambiente não configuradas no Netlify.');
+      }
+    } catch (err: any) {
       console.error('Error loading dashboard summary:', err);
+      setLoadError(err?.message || 'Não foi possível carregar os dados do banco.');
     } finally {
       if (showSpinner) setIsLoading(false);
     }
@@ -159,7 +168,31 @@ export default function DashboardPage() {
         </div>
 
         {/* ================================================================== */}
-        {/* 2. TOP 6 KPI CARDS */}
+        {/* 2. ERROR & STATUS ALERT BANNER (FASE 9) */}
+        {/* ================================================================== */}
+        {loadError && (
+          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-rose-950/20">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white">Não foi possível carregar os dados da base</p>
+                <p className="text-xs text-rose-300/90 mt-0.5">{loadError}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => loadSummary(period, true)}
+              className="px-3.5 py-1.5 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 text-white text-xs font-bold border border-rose-400/40 transition flex items-center gap-1.5 shrink-0"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Tentar Novamente
+            </button>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* 3. TOP 6 KPI CARDS */}
         {/* ================================================================== */}
         {isLoading || !summary ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

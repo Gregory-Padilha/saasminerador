@@ -15,6 +15,11 @@ import {
   Database,
   Info,
   RefreshCw,
+  Server,
+  Activity,
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 import { McpSettingsSection } from '@/components/settings/McpSettingsSection';
@@ -35,10 +40,31 @@ export default function SettingsPage() {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [hasSupabase, setHasSupabase] = useState(false);
 
+  const [diagnostic, setDiagnostic] = useState<any>(null);
+  const [isDiagnosticLoading, setIsDiagnosticLoading] = useState(false);
+  const [lastQueryTime, setLastQueryTime] = useState<string | null>(null);
+
   useEffect(() => {
     setHasSupabase(isSupabaseConfigured());
     loadSettings();
+    loadDiagnostic();
   }, []);
+
+  const loadDiagnostic = async () => {
+    setIsDiagnosticLoading(true);
+    try {
+      const res = await fetch('/api/debug/database-context');
+      if (res.ok) {
+        const data = await res.json();
+        setDiagnostic(data);
+        setLastQueryTime(new Date().toLocaleTimeString('pt-BR'));
+      }
+    } catch (err) {
+      console.error('Failed to load diagnostic context:', err);
+    } finally {
+      setIsDiagnosticLoading(false);
+    }
+  };
 
   const loadSettings = async () => {
     setIsLoading(true);
@@ -86,34 +112,170 @@ export default function SettingsPage() {
       />
 
       <div className="max-w-4xl space-y-8">
-        {/* Supabase Connection Status Card */}
-        <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-blue-600/10 text-blue-400 border border-blue-500/20">
-              <Database className="w-5 h-5" />
+        {/* ================================================================== */}
+        {/* FASE 23 — PAINEL DE DIAGNÓSTICO DO SISTEMA & PERSISTÊNCIA */}
+        {/* ================================================================== */}
+        <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-blue-600/10 text-blue-400 border border-blue-500/20">
+                <Server className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  Diagnóstico do Sistema & Persistência
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/60 font-normal">
+                    Server Context
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Auditoria de conexão do banco de dados, resolução de tenant, autenticação e contagem server-side.
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-white">
-                Persistência & Conexão Supabase
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {hasSupabase
-                  ? 'Conexão ativa com o banco PostgreSQL e RLS do Supabase.'
-                  : 'Modo Local Storage Ativo. Configure .env.local com suas credenciais do Supabase para sincronização em nuvem.'}
-              </p>
+
+            <div className="flex items-center gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={loadDiagnostic}
+                disabled={isDiagnosticLoading}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isDiagnosticLoading ? 'animate-spin' : ''}`} />
+                <span>Atualizar</span>
+              </button>
+
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                  diagnostic?.supabaseConnection?.tableExists
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                    : diagnostic?.supabaseConfigured
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20'
+                }`}
+              >
+                {diagnostic?.supabaseConnection?.tableExists
+                  ? '✓ Supabase Online'
+                  : diagnostic?.supabaseConfigured
+                  ? '⚠ Acesso Limitado'
+                  : '● Modo Local'}
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span
-              className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                hasSupabase
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                  : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20'
-              }`}
-            >
-              {hasSupabase ? '✓ Supabase Conectado' : '● Local Storage Pronto'}
-            </span>
+          {/* 6 Diagnostic Metric Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {/* 1. Ambiente */}
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Ambiente
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-white uppercase">
+                  {diagnostic?.environment || 'development'}
+                </span>
+                <span className="text-[10px] font-mono text-slate-400">
+                  ({diagnostic?.context || 'local'})
+                </span>
+              </div>
+            </div>
+
+            {/* 2. Supabase Project Ref */}
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Supabase Project Ref
+              </span>
+              <span className="text-xs font-mono font-bold text-blue-400 block truncate" title={diagnostic?.supabaseProjectRef || 'Não configurado'}>
+                {diagnostic?.supabaseProjectRef || 'Não configurado'}
+              </span>
+            </div>
+
+            {/* 3. Auth User */}
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Sessão / Usuário
+              </span>
+              <span className="text-xs font-mono text-slate-200 block truncate" title={diagnostic?.authUserId || 'Sessão Pública / Anônima'}>
+                {diagnostic?.authenticated ? (diagnostic.authUserId || 'Autenticado') : 'Sessão Pública / Anônima'}
+              </span>
+            </div>
+
+            {/* 4. Workspace */}
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Workspace / Tenant
+              </span>
+              <span className="text-xs font-mono text-slate-200 block">
+                {diagnostic?.workspaceId || 'default_workspace'}
+              </span>
+            </div>
+
+            {/* 5. Database Status */}
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Database Status
+              </span>
+              <div className="flex items-center gap-1.5">
+                {diagnostic?.supabaseConnection?.tableExists ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="text-xs font-medium text-emerald-400 truncate">PostgreSQL Online</span>
+                  </>
+                ) : diagnostic?.supabaseConfigured ? (
+                  <>
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="text-xs font-medium text-amber-400 truncate" title={diagnostic?.supabaseConnection?.error || 'Tabelas não criadas'}>
+                      Acesso Limitado (Tabelas Ausentes)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Activity className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span className="text-xs font-medium text-cyan-400 truncate">Armazenamento Local</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* 6. Data Access */}
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Acesso aos Dados (Server)
+              </span>
+              <span className="text-xs font-mono font-bold text-white block">
+                {diagnostic?.offersVisibleToCurrentSession ?? 0} ofertas visíveis
+              </span>
+            </div>
+          </div>
+
+          {/* Diagnostic Warnings & Last query */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 text-[11px] text-slate-400">
+            <div>
+              {diagnostic?.supabaseConfigured && !diagnostic?.supabaseConnection?.tableExists && (
+                <span className="text-amber-400 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Supabase conectado, mas a tabela <code>public.offers</code> não existe ({diagnostic?.supabaseConnection?.error || 'PGRST205'}). Execute a migração <code>supabase/schema.sql</code>.
+                </span>
+              )}
+              {!diagnostic?.supabaseConfigured && diagnostic?.environment === 'production' && (
+                <span className="text-rose-400 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Produção Netlify sem variáveis <code>NEXT_PUBLIC_SUPABASE_URL</code> e <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>.
+                </span>
+              )}
+              {diagnostic?.supabaseConnection?.tableExists && (
+                <span className="text-emerald-400 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Ambiente conectado com sucesso ao Supabase Cloud.
+                </span>
+              )}
+            </div>
+
+            {lastQueryTime && (
+              <span className="font-mono text-[10px] text-slate-500 shrink-0">
+                Última consulta: {lastQueryTime}
+              </span>
+            )}
           </div>
         </div>
 

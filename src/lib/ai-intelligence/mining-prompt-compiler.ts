@@ -142,22 +142,30 @@ An **OFFER UNIT** is NOT an advertiser, nor a keyword search result. An offer ca
 
 ## 4. STEP-BY-STEP EXECUTION PROCEDURE
 
-Follow these 15 execution steps in exact sequence:
+Follow these execution steps in exact sequence:
 
-- **PASSO 1 — PREPARE SEARCH:** Interpret criteria, normalize target keywords, load exclusion manifest.
+- **PASSO 1 — PREPARE SEARCH:** Interpret criteria, normalize target keywords, initialize session dedupe trackers (\`seenMetaAdIds\`, \`seenLandingPages\`, \`seenCandidateFingerprints\`).
 - **PASSO 2 — SEARCH META ADS LIBRARY:** Search Meta Ads Library using varied keyword combinations, niche terms, and advertiser queries.
-- **PASSO 3 — CHEAP PRE-FILTER:** Immediately discard physical items, wrong country/language, wrong product format, or obvious duplicates BEFORE deep link inspection.
-- **PASSO 4 — IDENTIFY EXACT OFFER:** Isolate the specific product promise and separate it from other products sold by the same advertiser.
-- **PASSO 5 — VERIFY ACTIVE ADS:** Count active ads belonging strictly to this single offer unit. Verify if count is within [${config.minActiveAds ?? 1} .. ${config.maxActiveAds ?? '∞'}].
-- **PASSO 6 — VERIFY LONGEVITY:** Determine first seen date / days active. Verify within [${config.minDaysActive ?? 1} .. ${config.maxDaysActive ?? '∞'}].
-- **PASSO 7 — VERIFY CREATIVES:** Count distinct ad creative variations without performing creative-by-creative visual audits.
-- **PASSO 8 — RESOLVE DESTINATION URL:** Open the representative ad CTA link to capture the REAL destination Landing Page URL (follow redirects to final URL).
-- **PASSO 9 — VERIFY PRODUCT MATCH:** Confirm the Landing Page matches the exact offer title observed in Meta Ads.
-- **PASSO 10 — CHECK FRONT PRICE:** Locate front price on Landing Page / Checkout. Confirm within [R$ ${config.minFrontPrice ?? 0} .. R$ ${config.maxFrontPrice ?? '∞'}].
-- **PASSO 11 — CHECK DUPLICATES:** Compare against current run accepted candidates AND the Compact Exclusion Manifest.
-- **PASSO 12 — ACCEPT OR REJECT:** Accept ONLY if ALL hard filters pass. If any filter fails, **REJECT IMMEDIATELY** without writing a failure report.
-- **PASSO 13 — SAVE ROW:** Append validated offer row to the export dataset.
-- **PASSO 14 — CONTINUE:** Repeat search for next candidate offer.
+- **PASSO 3 — CHEAP PRE-FILTER:** Immediately discard physical items, wrong country/language, or non-digital formats BEFORE deep inspection.
+- **PASSO 4 — BATCH CANDIDATES (10–20 CANDIDATES):** Group candidate ads containing product name, advertiser, landing page URL, and Meta Ad ID into a batch.
+${
+  config.excludeMinedOffers
+    ? `- **PASSO 5 — MCP DEDUPLICATION CHECK (EARLY DEDUPE):**
+  Call the Offer Miner MCP tool \`check_offers_duplicates\` with your batch of candidates:
+  - **DUPLICATE:** Discard immediately. DO NOT open LP deeply, do not inspect checkout, do not count ads.
+  - **POSSIBLE_DUPLICATE:** Call \`get_offer\` or \`get_offer_context\` to verify factual identity before proceeding.
+  - **NEW:** Continue with deep validation steps below.`
+    : ''
+}
+- **PASSO 6 — IDENTIFY EXACT OFFER:** Isolate the specific product promise and separate it from other products sold by the same advertiser.
+- **PASSO 7 — VERIFY ACTIVE ADS:** Count active ads belonging strictly to this single offer unit. Verify if count is within [${config.minActiveAds ?? 1} .. ${config.maxActiveAds ?? '∞'}].
+- **PASSO 8 — VERIFY LONGEVITY:** Determine first seen date / days active. Verify within [${config.minDaysActive ?? 1} .. ${config.maxDaysActive ?? '∞'}].
+- **PASSO 9 — VERIFY CREATIVES:** Count distinct ad creative variations.
+- **PASSO 10 — RESOLVE DESTINATION URL:** Open the representative ad CTA link to capture the REAL destination Landing Page URL (follow redirects to final URL).
+- **PASSO 11 — VERIFY PRODUCT MATCH:** Confirm the Landing Page matches the exact offer title observed in Meta Ads.
+- **PASSO 12 — CHECK FRONT PRICE:** Locate front price on Landing Page / Checkout. Confirm within [R$ ${config.minFrontPrice ?? 0} .. R$ ${config.maxFrontPrice ?? '∞'}].
+- **PASSO 13 — ACCEPT OR REJECT:** Accept ONLY if ALL hard filters pass. If any filter fails, **REJECT IMMEDIATELY** without writing a failure report.
+- **PASSO 14 — SAVE ROW:** Append validated offer row to the export dataset and record in session dedupe trackers.
 - **PASSO 15 — STOP IMMEDIATELY:** As soon as exactly **${config.targetOffers} VALID UNIQUE OFFERS** are appended to the file: **STOP EXECUTION IMMEDIATELY**. Do NOT continue searching "to be safe".
 
 ---
@@ -166,7 +174,8 @@ Follow these 15 execution steps in exact sequence:
 
 Mode: **${config.tokenEconomyMode}**
 - **SEARCH WIDE, VERIFY CHEAP, DEEP CHECK ONLY FINALISTS.**
-- **FAST REJECTION POLICY:** When a candidate fails any filter (e.g., active ads < ${config.minActiveAds ?? 1} or physical product), discard it instantly and move to the next.
+- **FAST REJECTION POLICY:** When a candidate fails any filter (e.g., active ads < ${config.minActiveAds ?? 1} or duplicate in Offer Miner), discard it instantly and move to the next.
+- **EARLY DEDUPLICATION:** Never spend time crawling landing pages or checkouts for offers that already exist in the Offer Miner catalog.
 - **NO NARRATIVE REPORTS:** Do NOT write paragraphs explaining why an offer was rejected.
 - **MAX 1 SHORT SENTENCE NOTES:** In the \`notes\` output column, write at most 1 short sentence (e.g. "Low-ticket ebook faceless validado com 18 ads ativos").
 
@@ -179,7 +188,7 @@ ${config.excludedFormats.map((f) => `- ❌ DO NOT INCLUDE FORMAT: ${f}.`).join('
 ${config.expertPresence === 'Disallow' ? '- ❌ DO NOT INCLUDE EXPERT / PERSONAL BRAND COURSES.' : ''}
 ${config.requireLandingPage ? '- ❌ DO NOT INCLUDE OFFERS WITHOUT A VALID LANDING PAGE.' : ''}
 ${config.requireMetaAdsLink ? '- ❌ DO NOT INCLUDE OFFERS WITHOUT AN EXACT META ADS URL.' : ''}
-- ❌ DO NOT INCLUDE DUPLICATES (Same Title + Same Advertiser or Same LP Domain).
+- ❌ DO NOT INCLUDE DUPLICATES (Existing in Offer Miner SaaS catalog, or repeated in the same mining session).
 
 ---
 
@@ -193,14 +202,55 @@ ${config.requireMetaAdsLink ? '- ❌ DO NOT INCLUDE OFFERS WITHOUT AN EXACT META
 
 ---
 
-## 8. DEDUPLICATION & COMPACT EXCLUSION MANIFEST
+## 8. DEDUPLICATION & OFFER MINER MCP CONNECTION
 
-Do NOT re-mine offers that already exist in the Offer Miner database.
+${
+  config.excludeMinedOffers
+    ? `⚠️ **REGRA ABSOLUTA: ANTES DE CONSIDERAR UM CANDIDATO COMO OFERTA VÁLIDA, CONSULTE O OFFER MINER!**
 
-**Exclusion Manifest (${manifest.length} items):**
+### Fluxo Operacional Obrigatório de Deduplicação:
+1. **Descubra candidatos na Meta Ads Library.**
+2. **Aplique filtros extremamente baratos localmente** (ad ativo, nicho básico, produto digital).
+3. **Agrupe candidatos em lote (10 a 20 candidatos por chamada).**
+4. **Execute a ferramenta MCP:** \`check_offers_duplicates\`.
+   Exemplo de payload de chamada:
+   \`\`\`json
+   {
+     "candidates": [
+       {
+         "candidate_id": "cand-1",
+         "offer_name": "Nome da Oferta",
+         "advertiser": "Nome do Anunciante",
+         "landing_page_url": "https://lp.exemplo.com",
+         "checkout_url": "https://pay.exemplo.com/checkout",
+         "meta_ad_id": "1234567890"
+       }
+     ]
+   }
+   \`\`\`
+5. **Aja estritamente conforme o status retornado:**
+   - **DUPLICATE** → **DESCARTE IMEDIATAMENTE (SKIP).** Não gaste tokens ou tempo abrindo a LP profundamente, testando checkout ou contando anúncios.
+   - **POSSIBLE_DUPLICATE** → Chame \`get_offer\` ou \`get_offer_context\` com o \`matched_offer_id\` para verificar factual e semanticamente se é a mesma oferta antes de continuar.
+   - **NEW** → Prossiga normalmente com a validação completa da oferta.
+
+### Deduplicação de Sessão (Dentro da Mesma Missão):
+- O próprio agente deve manter: \`seenMetaAdIds\`, \`seenLandingPages\`, \`seenCandidateFingerprints\`.
+- **NUNCA** consulte o MCP novamente para o mesmo candidato já verificado dentro da própria execução.
+- **NUNCA** repita o mesmo anúncio ou produto no arquivo final.
+
+### Regra de Indisponibilidade do Plugin/MCP:
+- Se a ferramenta Offer Miner / MCP não estiver acessível, **NÃO INVENTE RESULTADOS**.
+- Emita explicitamente a mensagem:
+  > *"Offer Miner não está conectado; deduplicação contra o catálogo não pôde ser executada."*
+- **NUNCA** assuma que um candidato é novo sem consultar o SaaS quando a missão exige dedupe.
+
+**Manifesto Compacto de Exclusões Prévias (${manifest.length} itens no banco):**
 \`\`\`
 ${manifestText}
-\`\`\`
+\`\`\``
+    : `Deduplicação externa desativada pelo operador. Apenas verifique duplicatas dentro da própria sessão.`
+}
+
 
 ---
 

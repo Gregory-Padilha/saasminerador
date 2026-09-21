@@ -24,6 +24,9 @@ export function Topbar() {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [hasSupabase, setHasSupabase] = useState(false);
+  const [healthLabel, setHealthLabel] = useState('Verificando...');
+  const [healthTooltip, setHealthTooltip] = useState('Verificando integridade da conexão...');
+  const [healthDotClass, setHealthDotClass] = useState('bg-slate-500');
 
   const [isAnalyzeModalOpen, setIsAnalyzeModalOpen] = useState(false);
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
@@ -31,6 +34,48 @@ export function Topbar() {
 
   useEffect(() => {
     setHasSupabase(isSupabaseConfigured());
+
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/debug/database-context');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (data.supabaseConfigured) {
+          if (data.supabaseConnection?.tableExists) {
+            setHealthLabel('Banco Conectado');
+            setHealthTooltip('Database ✓ · Session ✓ · Workspace ✓ · Data Access ✓');
+            setHealthDotClass('bg-emerald-400 animate-pulse');
+          } else {
+            setHealthLabel('Banco Conectado · Acesso Limitado');
+            setHealthTooltip(`Supabase Conectado, mas tabelas ausentes ou RLS: ${data.supabaseConnection?.error || 'PGRST205'}`);
+            setHealthDotClass('bg-amber-400');
+          }
+        } else {
+          if (data.environment === 'production') {
+            setHealthLabel('Banco Desconectado');
+            setHealthTooltip('Produção sem variáveis NEXT_PUBLIC_SUPABASE_URL configuradas no Netlify');
+            setHealthDotClass('bg-rose-500');
+          } else {
+            setHealthLabel('Modo Local (Offline)');
+            setHealthTooltip('Modo Local Storage Ativo · Supabase Cloud Desconectado');
+            setHealthDotClass('bg-cyan-400');
+          }
+        }
+      } catch (err: any) {
+        if (isSupabaseConfigured()) {
+          setHealthLabel('Conexão Instável');
+          setHealthTooltip('Erro ao contatar backend');
+          setHealthDotClass('bg-rose-500');
+        } else {
+          setHealthLabel('Modo Local');
+          setHealthTooltip('Conexão local ativa');
+          setHealthDotClass('bg-cyan-400');
+        }
+      }
+    };
+
+    checkHealth();
 
     const handleOpenJson = () => setIsJsonModalOpen(true);
     window.addEventListener('open-json-import-modal', handleOpenJson);
@@ -103,17 +148,13 @@ export function Topbar() {
             </button>
           )}
 
-          {/* Backend status indicator */}
+          {/* Backend status indicator with accurate diagnostics (FASE 22) */}
           <div
-            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-slate-800 bg-slate-900/80"
-            title={
-              hasSupabase
-                ? 'Conectado ao Supabase PostgreSQL'
-                : 'Conectado localmente'
-            }
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-slate-800 bg-slate-900/80 cursor-help transition"
+            title={healthTooltip}
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-slate-300 text-[11px]">Banco Conectado</span>
+            <span className={`w-2 h-2 rounded-full ${healthDotClass}`} />
+            <span className="text-slate-300 text-[11px] font-medium">{healthLabel}</span>
           </div>
 
           {/* Button 1: + ANALISAR OFERTA */}
