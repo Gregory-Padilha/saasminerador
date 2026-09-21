@@ -16,6 +16,8 @@ import {
 import { SYSTEM_PROMPT_ANALYST_V1, getOfferBrainSystemPrompt } from '../prompts';
 import { aiDbService } from '../db';
 
+import { serverEnv } from '@/lib/env/server';
+
 interface HealthCacheEntry {
   result: AIProviderHealthResult;
   timestamp: number;
@@ -30,7 +32,7 @@ export class OpenAIProviderAdapter implements AIProviderAdapter {
   displayName = 'ChatGPT / OpenAI';
 
   private getApiKey(): string | null {
-    return process.env.OPENAI_API_KEY || null;
+    return serverEnv.OPENAI_API_KEY;
   }
 
   isConfigured(): boolean {

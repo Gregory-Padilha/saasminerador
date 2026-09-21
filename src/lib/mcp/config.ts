@@ -1,4 +1,5 @@
 import { McpLogEntry, McpServerConfig } from '@/types';
+import { serverEnv } from '@/lib/env/server';
 
 export const MCP_VERSION = '1.0.0';
 
@@ -18,9 +19,7 @@ export function isMcpEnabled(): boolean {
 }
 
 export function getMcpToken(): string | null {
-  const token = process.env.OFFER_MINER_MCP_TOKEN;
-  if (!token || token.trim() === '') return null;
-  return token.trim();
+  return serverEnv.OFFER_MINER_MCP_TOKEN;
 }
 
 export function getMcpLocalUrl(): string {

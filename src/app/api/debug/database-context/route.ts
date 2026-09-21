@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/supabase/db';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { auditServerSecrets } from '@/lib/env/server';
+import { publicEnv } from '@/lib/env/public';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   try {
-    const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+    const rawUrl = publicEnv.SUPABASE_URL;
     let projectRef: string | null = null;
     if (rawUrl) {
       try {
@@ -85,11 +87,10 @@ export async function GET(req: NextRequest) {
       importsVisible: batches.length,
       mappingRecordsVisible: mappingBatches.length,
       envAudit: {
-        NEXT_PUBLIC_SUPABASE_URL: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
-        SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-        OFFER_MINER_MCP_TOKEN: Boolean(process.env.OFFER_MINER_MCP_TOKEN),
-        MCP_PUBLIC_URL: Boolean(process.env.MCP_PUBLIC_URL),
+        NEXT_PUBLIC_SUPABASE_URL: Boolean(publicEnv.SUPABASE_URL),
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: Boolean(publicEnv.SUPABASE_ANON_KEY),
+        MCP_PUBLIC_URL: Boolean(publicEnv.MCP_PUBLIC_URL),
+        ...auditServerSecrets(),
       },
     });
   } catch (err: any) {
