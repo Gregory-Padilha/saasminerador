@@ -13,6 +13,11 @@ const mcpLogs: (McpLogEntry & { origin?: 'local' | 'remote' })[] = [];
 const requestBucket: Record<string, { count: number; resetTime: number }> = {};
 const serverStartTime = Date.now();
 
+export const CANONICAL_PRODUCTION_MCP_URL = 'https://saasmineracao.netlify.app/api/mcp';
+export const CANONICAL_DEVELOPMENT_MCP_URL = 'http://localhost:3000/api/mcp';
+export const CANONICAL_RESOURCE_METADATA_URL = 'https://saasmineracao.netlify.app/.well-known/oauth-protected-resource';
+export const SUPABASE_OAUTH_ISSUER = 'https://hofrcxldtmdjchbhdcno.supabase.co/auth/v1';
+
 export function isMcpEnabled(): boolean {
   if (process.env.MCP_ENABLED === 'false') return false;
   return true;
@@ -23,24 +28,30 @@ export function getMcpToken(): string | null {
 }
 
 export function getMcpLocalUrl(): string {
-  return 'http://localhost:3000/api/mcp';
+  return CANONICAL_DEVELOPMENT_MCP_URL;
 }
 
-export function getMcpPublicUrl(): string | null {
-  const raw = process.env.MCP_PUBLIC_URL;
-  if (!raw || raw.trim() === '') return null;
-  return raw.trim();
+export function getMcpPublicUrl(): string {
+  const raw = process.env.MCP_PUBLIC_URL?.trim();
+  // In production or Netlify environment, never use trycloudflare tunnel as primary URL
+  if (process.env.NODE_ENV === 'production' || process.env.NETLIFY) {
+    if (raw && !raw.includes('trycloudflare.com') && raw.startsWith('https://')) {
+      return raw;
+    }
+    return CANONICAL_PRODUCTION_MCP_URL;
+  }
+  // In local development, return configured tunnel/custom URL if explicitly set, else canonical
+  if (raw && raw !== '') {
+    return raw;
+  }
+  return CANONICAL_PRODUCTION_MCP_URL;
 }
 
 /**
  * Validate remote HTTPS URL requirement
  */
-export function isMcpPublicUrlValid(): { valid: boolean; reason?: string; url: string | null } {
+export function isMcpPublicUrlValid(): { valid: boolean; reason?: string; url: string } {
   const url = getMcpPublicUrl();
-  if (!url) {
-    return { valid: false, reason: 'NOT_CONFIGURED', url: null };
-  }
-
   try {
     const parsed = new URL(url);
     const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
@@ -135,7 +146,7 @@ export function getMcpUptimeSeconds(): number {
   return Math.floor((Date.now() - serverStartTime) / 1000);
 }
 
-export function getMcpHealth(toolsCount: number = 15) {
+export function getMcpHealth(toolsCount: number = 26) {
   const tokenConfigured = Boolean(getMcpToken());
   const enabled = isMcpEnabled();
   const remoteCheck = isMcpPublicUrlValid();
@@ -146,6 +157,8 @@ export function getMcpHealth(toolsCount: number = 15) {
     transport: 'streamable-http',
     mode: 'read-only',
     tools: toolsCount,
+    productionUrl: CANONICAL_PRODUCTION_MCP_URL,
+    developmentUrl: CANONICAL_DEVELOPMENT_MCP_URL,
     remoteConfigured: remoteCheck.valid,
     remoteUrl: remoteCheck.url,
     remoteStatus: remoteCheck.valid

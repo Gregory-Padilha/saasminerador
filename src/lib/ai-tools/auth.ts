@@ -1,5 +1,6 @@
 import { McpAuthMode, AiGatewayAuthResult } from './types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { getMcpPublicUrl, CANONICAL_RESOURCE_METADATA_URL, SUPABASE_OAUTH_ISSUER } from '@/lib/mcp/config';
 
 export function getAuthMode(): McpAuthMode {
   const mode = process.env.MCP_AUTH_MODE || process.env.AI_GATEWAY_AUTH_MODE;
@@ -14,15 +15,15 @@ export function getGatewayToken(): string | null {
   return token.trim();
 }
 
-export function getSupabaseAuthIssuer(): string | null {
+export function getSupabaseAuthIssuer(): string {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  if (!url || !url.trim()) return null;
+  if (!url || !url.trim()) return SUPABASE_OAUTH_ISSUER;
   const cleanUrl = url.trim().replace(/\/$/, '');
   return `${cleanUrl}/auth/v1`;
 }
 
 export function getProtectedResourceMetadataUrl(): string {
-  const publicUrl = process.env.MCP_PUBLIC_URL?.trim();
+  const publicUrl = getMcpPublicUrl();
   if (publicUrl) {
     try {
       const parsed = new URL(publicUrl);
@@ -31,7 +32,7 @@ export function getProtectedResourceMetadataUrl(): string {
       // Fallback
     }
   }
-  return 'http://localhost:3000/.well-known/oauth-protected-resource';
+  return CANONICAL_RESOURCE_METADATA_URL;
 }
 
 export function getWwwAuthenticateHeader(): string {

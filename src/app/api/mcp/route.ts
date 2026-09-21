@@ -40,17 +40,42 @@ export async function POST(req: NextRequest) {
   const authResult = await verifyGatewayAuthAsync(authHeader);
 
   if (!authResult.valid) {
+    const wwwAuth = authResult.wwwAuthenticateHeader || getWwwAuthenticateHeader();
+    const metaUrl = getProtectedResourceMetadataUrl();
+
+    let jsonRpcId: any = null;
+    try {
+      const cloned = req.clone();
+      const parsedBody = await cloned.json();
+      if (parsedBody && typeof parsedBody === 'object' && 'id' in parsedBody) {
+        jsonRpcId = parsedBody.id;
+      }
+    } catch {
+      // not JSON-RPC body
+    }
+
     return NextResponse.json(
       {
-        error: 'unauthorized',
-        error_description: 'Authentication required. OAuth 2.1 Protected Resource.',
-        resource_metadata: getProtectedResourceMetadataUrl(),
+        jsonrpc: '2.0',
+        id: jsonRpcId,
+        error: {
+          code: -32001,
+          message: 'Authentication required. OAuth 2.1 Protected Resource.',
+          data: {
+            reason: authResult.reason,
+            resource_metadata: metaUrl,
+          },
+        },
+        _meta: {
+          'mcp/www_authenticate': wwwAuth,
+        },
+        resource_metadata: metaUrl,
       },
       {
         status: 401,
         headers: {
           ...CORS_HEADERS,
-          'WWW-Authenticate': authResult.wwwAuthenticateHeader || getWwwAuthenticateHeader(),
+          'WWW-Authenticate': wwwAuth,
         },
       }
     );

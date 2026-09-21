@@ -1,4 +1,4 @@
-export type ClientPresetId = 'gemini' | 'antigravity' | 'cursor' | 'claude' | 'generic' | 'rest';
+export type ClientPresetId = 'chatgpt' | 'gemini' | 'antigravity' | 'cursor' | 'claude' | 'generic' | 'rest';
 export type TransportType = 'http' | 'stdio' | 'rest';
 export type EnvironmentMode = 'local' | 'remote';
 
@@ -14,6 +14,16 @@ export interface ClientPresetMeta {
 }
 
 export const CLIENT_PRESETS: ClientPresetMeta[] = [
+  {
+    id: 'chatgpt',
+    name: 'ChatGPT Work',
+    badge: 'OpenAI Work',
+    description: 'Conecte o ChatGPT Work via MCP Streamable HTTP + OAuth 2.1 (RFC 9728) para deduplicação em tempo real.',
+    supportsHttp: true,
+    supportsStdio: false,
+    supportsRest: false,
+    iconName: 'Sparkles',
+  },
   {
     id: 'gemini',
     name: 'Gemini & Gemini CLI',
@@ -86,6 +96,39 @@ export function generateClientSnippet(
 ): { snippet: string; instructions: string } {
   const targetUrl = mode === 'remote' && publicUrl ? publicUrl : localUrl;
   const tokenPlaceholder = token || 'SEU_OFFER_MINER_MCP_TOKEN';
+
+  if (clientId === 'chatgpt') {
+    const mcpEndpoint = mode === 'remote' ? 'https://saasmineracao.netlify.app/api/mcp' : localUrl;
+    const metadataUrl = mode === 'remote'
+      ? 'https://saasmineracao.netlify.app/.well-known/oauth-protected-resource'
+      : `${localUrl.replace(/\/api\/mcp\/?$/, '')}/.well-known/oauth-protected-resource`;
+
+    return {
+      snippet: JSON.stringify(
+        {
+          name: 'Offer Miner MCP',
+          type: 'streamable-http',
+          url: mcpEndpoint,
+          authentication: {
+            type: 'oauth2',
+            protected_resource_metadata: metadataUrl,
+            authorization_server: 'https://hofrcxldtmdjchbhdcno.supabase.co/auth/v1',
+            authorization_endpoint: 'https://hofrcxldtmdjchbhdcno.supabase.co/auth/v1/oauth/authorize',
+            token_endpoint: 'https://hofrcxldtmdjchbhdcno.supabase.co/auth/v1/oauth/token',
+            scopes: ['openid', 'email', 'profile', 'offline_access'],
+            pkce: 'S256',
+            response_type: 'code',
+          },
+          tools_count: 26,
+          primary_dedupe_tool: 'check_offers_duplicates',
+        },
+        null,
+        2
+      ),
+      instructions:
+        'No ChatGPT Work > Custom GPT / Conexão de Ações / MCP Server:\n1. Cole o MCP Endpoint (URL HTTPS).\n2. Selecione autenticação OAuth 2.1 (PKCE S256).\n3. O ChatGPT lerá automaticamente os metadados RFC 9728.',
+    };
+  }
 
   if (clientId === 'antigravity') {
     return {

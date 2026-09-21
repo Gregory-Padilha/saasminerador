@@ -44,9 +44,13 @@ export async function handleMcpRequest(
         const result = {
           protocolVersion: '2024-11-05',
           capabilities: {
-            tools: {},
+            tools: {
+              listChanged: false,
+            },
           },
           serverInfo: SERVER_INFO,
+          instructions:
+            'Offer Miner Canonical AI Tool Layer for Market Intelligence, Creative Disassembly, and Real-Time Offer Deduplication.',
         };
         logMcpRequest('initialize', Date.now() - startTime, true, undefined, origin);
         return { jsonrpc: '2.0', id, result };
@@ -66,6 +70,17 @@ export async function handleMcpRequest(
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
+          securitySchemes: [
+            {
+              type: 'oauth2',
+              scopes: ['openid', 'email', 'profile'],
+            },
+          ],
+          security: [
+            {
+              oauth2: ['openid', 'email', 'profile'],
+            },
+          ],
         }));
         logMcpRequest('tools/list', Date.now() - startTime, true, undefined, origin);
         return { jsonrpc: '2.0', id, result: { tools: toolsList } };

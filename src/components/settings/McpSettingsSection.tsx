@@ -65,7 +65,16 @@ export function McpSettingsSection() {
   const [testingOAuth, setTestingOAuth] = useState(false);
   const [oauthTestResult, setOauthTestResult] = useState<{
     success: boolean;
+    chatgptWorkReady?: 'YES' | 'NO';
     message: string;
+    statusBadges?: {
+      mcpProduction: string;
+      mcpDevelopment: string;
+      oauthResourceMetadata: 'ONLINE' | 'ERROR';
+      authorizationServerDiscovery: 'ONLINE' | 'ERROR';
+      challenge401: 'PASS' | 'FAIL';
+      chatgptWorkReady: 'YES' | 'NO';
+    };
     checklist?: Record<string, boolean>;
     logs?: string[];
   } | null>(null);
@@ -88,6 +97,7 @@ export function McpSettingsSection() {
     }
     fetchHealth();
     fetchAllProvidersHealth();
+    handleTestOAuthStack();
   }, []);
 
   const fetchAllProvidersHealth = async () => {
@@ -227,13 +237,13 @@ export function McpSettingsSection() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-white tracking-wide">OFFER MINER AI GATEWAY</h3>
+              <h3 className="text-base font-bold text-white tracking-wide">OFFER MINER AI GATEWAY & MCP</h3>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                v1.0 (OAuth 2.1 + Token)
+                OAuth 2.1 + RFC 9728
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Camada Universal de Integração com Agentes de IA (Gemini Spark, Antigravity, Cursor, Claude, REST & OpenAPI).
+              Camada Canônica de Integração para ChatGPT Work (Mineração & Deduplicação), Gemini, Antigravity e IDEs.
             </p>
           </div>
         </div>
@@ -246,7 +256,7 @@ export function McpSettingsSection() {
             className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-purple-500/20 disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${testingOAuth ? 'animate-spin' : ''}`} />
-            <span>Testar OAuth MCP</span>
+            <span>Testar ChatGPT & OAuth</span>
           </button>
 
           <button
@@ -260,85 +270,177 @@ export function McpSettingsSection() {
         </div>
       </div>
 
-      {/* Gateway Transports Status Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* MCP Local */}
-        <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-              <Server className="w-3.5 h-3.5 text-blue-400" />
-              MCP Local (HTTP/STDIO)
-            </span>
-            <span className="text-[10px] font-mono text-emerald-400 font-bold">● Online</span>
-          </div>
-          <p className="text-[11px] text-slate-400 truncate font-mono">{localUrl}</p>
-        </div>
-
-        {/* MCP Remote */}
+      {/* Gateway Transports Status Grid (6 Cards per Specifications) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Card 1: MCP Production */}
         <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
               <Globe className="w-3.5 h-3.5 text-emerald-400" />
-              MCP Remoto (HTTPS)
+              MCP Produção (Canônico)
             </span>
-            {isRemoteValid ? (
-              <span className="text-[10px] font-mono text-emerald-400 font-bold">● Online</span>
-            ) : (
-              <span className="text-[10px] font-mono text-amber-400">○ Pendente</span>
-            )}
+            <span className="text-[10px] font-mono text-emerald-400 font-bold">● Online</span>
           </div>
-          <p className="text-[11px] text-slate-400 truncate font-mono">
-            {healthData?.remoteUrl || 'MCP_PUBLIC_URL não definido'}
+          <p className="text-[11px] text-emerald-300 truncate font-mono select-all">
+            https://saasmineracao.netlify.app/api/mcp
           </p>
         </div>
 
-        {/* OAuth 2.1 Server */}
+        {/* Card 2: MCP Development */}
+        <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <Server className="w-3.5 h-3.5 text-blue-400" />
+              MCP Desenvolvimento
+            </span>
+            <span className="text-[10px] font-mono text-blue-400 font-bold">● Local / Dev</span>
+          </div>
+          <p className="text-[11px] text-slate-400 truncate font-mono">http://localhost:3000/api/mcp</p>
+        </div>
+
+        {/* Card 3: OAuth Resource Metadata */}
+        <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+              OAuth Resource Metadata
+            </span>
+            {oauthTestResult?.checklist?.protectedResourceMetadata ? (
+              <span className="text-[10px] font-mono text-emerald-400 font-bold">● ONLINE</span>
+            ) : (
+              <span className="text-[10px] font-mono text-rose-400 font-bold">○ ERROR</span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-400 truncate font-mono">/.well-known/oauth-protected-resource</p>
+        </div>
+
+        {/* Card 4: Authorization Server Discovery */}
         <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
               <KeyRound className="w-3.5 h-3.5 text-purple-400" />
-              OAuth 2.1 Server
+              Auth Server Discovery
             </span>
-            <span className="text-[10px] font-mono text-purple-300 font-bold">● Active (Supabase)</span>
+            {oauthTestResult?.checklist?.oauthDiscovery ? (
+              <span className="text-[10px] font-mono text-emerald-400 font-bold">● ONLINE</span>
+            ) : (
+              <span className="text-[10px] font-mono text-rose-400 font-bold">○ ERROR</span>
+            )}
           </div>
-          <p className="text-[11px] text-slate-400 truncate font-mono">RFC 9728 Metadata Ready</p>
+          <p className="text-[11px] text-slate-400 truncate font-mono">hofrcxldtmdjchbhdcno (PKCE S256)</p>
         </div>
 
-        {/* REST & OpenAPI */}
+        {/* Card 5: 401 Challenge */}
         <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-              <Code className="w-3.5 h-3.5 text-amber-400" />
-              REST & OpenAPI 3.0
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              401 Challenge (RFC 6750)
             </span>
-            <span className="text-[10px] font-mono text-emerald-400 font-bold">● Online</span>
+            {oauthTestResult?.checklist?.challenge401 ? (
+              <span className="text-[10px] font-mono text-emerald-400 font-bold">● PASS</span>
+            ) : (
+              <span className="text-[10px] font-mono text-rose-400 font-bold">○ FAIL</span>
+            )}
           </div>
-          <p className="text-[11px] text-slate-400 truncate font-mono">/api/ai/openapi.json</p>
+          <p className="text-[11px] text-slate-400 truncate font-mono">WWW-Authenticate resource_metadata</p>
+        </div>
+
+        {/* Card 6: ChatGPT Work Ready */}
+        <div className={`p-4 rounded-xl border space-y-1.5 transition ${
+          oauthTestResult?.chatgptWorkReady === 'YES'
+            ? 'bg-emerald-950/30 border-emerald-500/40 ring-1 ring-emerald-500/20'
+            : 'bg-slate-950/80 border-slate-800'
+        }`}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              ChatGPT Work Ready
+            </span>
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
+              oauthTestResult?.chatgptWorkReady === 'YES'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+            }`}>
+              {oauthTestResult?.chatgptWorkReady || 'TESTING...'}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400 truncate font-mono">
+            {oauthTestResult?.chatgptWorkReady === 'YES' ? '7/7 Etapas Validadas' : 'Validando Conexão...'}
+          </p>
         </div>
       </div>
 
-      {/* OAuth Diagnostic Result Display */}
+      {/* OAuth Diagnostic & ChatGPT Work Readiness Result Display */}
       {oauthTestResult && (
         <div
-          className={`p-5 rounded-2xl border text-xs space-y-3 ${
-            oauthTestResult.success
+          className={`p-5 rounded-2xl border text-xs space-y-4 ${
+            oauthTestResult.chatgptWorkReady === 'YES'
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
               : 'bg-purple-500/10 border-purple-500/30 text-purple-300'
           }`}
         >
-          <div className="flex items-center justify-between font-bold text-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between font-bold text-sm gap-2">
             <span className="flex items-center gap-2">
-              {oauthTestResult.success ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+              {oauthTestResult.chatgptWorkReady === 'YES' ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               ) : (
-                <Sparkles className="w-5 h-5 text-purple-400" />
+                <Sparkles className="w-5 h-5 text-purple-400 shrink-0" />
               )}
               {oauthTestResult.message}
             </span>
-            <span className="text-[10px] font-mono bg-slate-950 px-3 py-1 rounded-full border border-slate-800 text-slate-300">
-              Gemini Spark Diagnostics
+            <span className="text-[10px] font-mono bg-slate-950 px-3 py-1 rounded-full border border-slate-800 text-slate-300 self-start sm:self-auto">
+              {oauthTestResult.chatgptWorkReady === 'YES' ? 'CHATGPT WORK READY: YES' : 'DIAGNÓSTICO EM CURSO'}
             </span>
           </div>
+
+          {/* 7-Point Verification Checklist */}
+          {oauthTestResult.checklist && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-2 border-t border-slate-800/80">
+              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono">
+                <span className="text-slate-300">1. MCP Initialize (2024-11-05)</span>
+                <span className={oauthTestResult.checklist.mcpInitialize ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                  {oauthTestResult.checklist.mcpInitialize ? "PASS" : "FAIL"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono">
+                <span className="text-slate-300">2. Tools List (26 ferramentas)</span>
+                <span className={oauthTestResult.checklist.toolsList ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                  {oauthTestResult.checklist.toolsList ? "PASS" : "FAIL"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono">
+                <span className="text-slate-300">3. Protected Resource Metadata</span>
+                <span className={oauthTestResult.checklist.protectedResourceMetadata ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                  {oauthTestResult.checklist.protectedResourceMetadata ? "PASS" : "FAIL"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono">
+                <span className="text-slate-300">4. Supabase OAuth Discovery</span>
+                <span className={oauthTestResult.checklist.oauthDiscovery ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                  {oauthTestResult.checklist.oauthDiscovery ? "PASS" : "FAIL"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono">
+                <span className="text-slate-300">5. 401 Challenge Header</span>
+                <span className={oauthTestResult.checklist.challenge401 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                  {oauthTestResult.checklist.challenge401 ? "PASS" : "FAIL"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono">
+                <span className="text-slate-300">6. OAuth Consent & Login</span>
+                <span className={oauthTestResult.checklist.oauthLoginReady ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                  {oauthTestResult.checklist.oauthLoginReady ? "PASS" : "FAIL"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono sm:col-span-2 lg:col-span-3">
+                <span className="text-slate-300">7. Supabase Database Tool Call (Catálogo Canônico)</span>
+                <span className={oauthTestResult.checklist.databaseToolCall ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                  {oauthTestResult.checklist.databaseToolCall ? "PASS" : "FAIL"}
+                </span>
+              </div>
+            </div>
+          )}
 
           {oauthTestResult.logs && (
             <div className="space-y-1 font-mono text-[11px] bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-300">
