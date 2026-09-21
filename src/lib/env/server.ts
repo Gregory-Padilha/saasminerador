@@ -23,7 +23,11 @@ export const serverEnv = {
   },
 
   get SUPABASE_SERVICE_ROLE_KEY(): string | null {
-    return process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || null;
+    return process.env.SUPABASE_SECRET_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || null;
+  },
+
+  get SUPABASE_SECRET_KEY(): string | null {
+    return this.SUPABASE_SERVICE_ROLE_KEY;
   },
 
   get OFFER_MINER_MCP_TOKEN(): string | null {

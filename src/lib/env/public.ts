@@ -15,7 +15,15 @@ export const publicEnv = {
   },
 
   get SUPABASE_ANON_KEY(): string {
-    return (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
+    return (
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      ''
+    ).trim();
+  },
+
+  get SUPABASE_PUBLISHABLE_KEY(): string {
+    return this.SUPABASE_ANON_KEY;
   },
 
   get MCP_PUBLIC_URL(): string | null {
