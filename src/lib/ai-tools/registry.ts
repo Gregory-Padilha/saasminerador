@@ -2,7 +2,22 @@ import { dbService } from '@/lib/supabase/db';
 import { getOfferScaleTier } from '@/lib/scale-tier';
 import { calculateDossierCompleteness } from '@/lib/dossier';
 import { calculateFrontendPricing } from '@/lib/pricing';
-import { AiToolContract, AiToolError } from './types';
+import { AiToolContract, AiToolError, AiToolExecutionContext } from './types';
+import {
+  createAuthenticatedSupabaseClient,
+  createAdminSupabaseClient,
+  getSupabaseClient,
+} from '@/lib/supabase/client';
+
+export function resolveToolClient(context?: AiToolExecutionContext) {
+  if (context?.token && context.authMethod === 'oauth_token') {
+    const authClient = createAuthenticatedSupabaseClient(context.token);
+    if (authClient) return authClient;
+  }
+  const adminClient = createAdminSupabaseClient();
+  if (adminClient) return adminClient;
+  return getSupabaseClient();
+}
 import {
   SearchOffersSchema,
   GetOfferSchema,
@@ -76,9 +91,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         cursor: { type: 'string' },
       },
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const args = SearchOffersSchema.parse(rawArgs);
-      const allOffers = await dbService.getOffers();
+      const client = resolveToolClient(context);
+      const allOffers = await dbService.getOffers(undefined, client);
 
       let filtered = [...allOffers];
 
@@ -338,10 +354,11 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         visibility: ['model', 'app'],
       },
     },
-    execute: async (rawArgs: any) => {
+    execute: async (rawArgs: any, context) => {
       const args = CheckOffersDuplicatesSchema.parse(rawArgs);
+      const client = resolveToolClient(context);
       const { OfferDuplicateService } = await import('@/lib/offer/offer-duplicate-service');
-      return await OfferDuplicateService.checkMany(args);
+      return await OfferDuplicateService.checkMany(args, client);
     },
   },
   {
@@ -375,9 +392,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       },
       required: ['offerId'],
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { offerId, include } = GetOfferSchema.parse(rawArgs);
-      const offer = await dbService.getOfferById(offerId);
+      const client = resolveToolClient(context);
+      const offer = await dbService.getOfferById(offerId, client);
 
       if (!offer) {
         throw new AiToolError('NOT_FOUND', `Oferta com ID ${offerId} não encontrada.`);
@@ -478,9 +496,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       },
       required: ['offerId'],
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { offerId, depth } = GetOfferContextSchema.parse(rawArgs);
-      const offer = await dbService.getOfferById(offerId);
+      const client = resolveToolClient(context);
+      const offer = await dbService.getOfferById(offerId, client);
 
       if (!offer) {
         throw new AiToolError('NOT_FOUND', `Oferta com ID ${offerId} não encontrada.`);
@@ -593,13 +612,14 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       },
       required: ['offerIds'],
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { offerIds, depth } = GetOffersContextSchema.parse(rawArgs);
+      const client = resolveToolClient(context);
       const results: any[] = [];
 
       for (const id of offerIds.slice(0, 15)) {
         try {
-          const offer = await dbService.getOfferById(id);
+          const offer = await dbService.getOfferById(id, client);
           if (!offer) continue;
 
           const scaleInfo = getOfferScaleTier(offer.active_ads_count);
@@ -668,15 +688,16 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       },
       required: ['offerId'],
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { offerId, type, limit, cursor } = ListCreativesSchema.parse(rawArgs);
-      const offer = await dbService.getOfferById(offerId);
+      const client = resolveToolClient(context);
+      const offer = await dbService.getOfferById(offerId, client);
 
       if (!offer) {
         throw new AiToolError('NOT_FOUND', `Oferta com ID ${offerId} não encontrada.`);
       }
 
-      let ads = offer.ads || [];
+      let ads = (offer.ads && offer.ads.length > 0) ? offer.ads : await dbService.getOfferAds(offerId, client);
       if (type !== 'all') {
         ads = ads.filter((ad) => {
           const media = ad.media?.[0];
@@ -727,9 +748,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       },
       required: ['creativeId'],
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { creativeId } = GetCreativeSchema.parse(rawArgs);
-      const offers = await dbService.getOffers();
+      const client = resolveToolClient(context);
+      const offers = await dbService.getOffers(undefined, client);
 
       let targetAd: any = null;
       for (const o of offers) {
@@ -764,9 +786,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       },
       required: ['offerId'],
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { offerId, includeSections, includePricing, includeCopy } = GetLandingPageAnalysisSchema.parse(rawArgs);
-      const offer = await dbService.getOfferById(offerId);
+      const client = resolveToolClient(context);
+      const offer = await dbService.getOfferById(offerId, client);
 
       if (!offer) {
         throw new AiToolError('NOT_FOUND', `Oferta com ID ${offerId} não encontrada.`);
@@ -812,9 +835,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       },
       required: ['offerId'],
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { offerId } = GetCheckoutAnalysisSchema.parse(rawArgs);
-      const offer = await dbService.getOfferById(offerId);
+      const client = resolveToolClient(context);
+      const offer = await dbService.getOfferById(offerId, client);
 
       if (!offer) {
         throw new AiToolError('NOT_FOUND', `Oferta com ID ${offerId} não encontrada.`);
@@ -859,13 +883,14 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       },
       required: ['offerIds'],
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { offerIds } = CompareOffersSchema.parse(rawArgs);
       if (offerIds.length > 3) {
         throw new AiToolError('LIMIT_EXCEEDED', 'O comparador aceita no máximo 3 ofertas por requisição.');
       }
 
-      const allOffers = await dbService.getOffers();
+      const client = resolveToolClient(context);
+      const allOffers = await dbService.getOffers(undefined, client);
       const selected = allOffers.filter((o) => offerIds.includes(o.id));
 
       const comparison = selected.map((o) => {
@@ -918,8 +943,9 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       type: 'object',
       properties: {},
     },
-    execute: async () => {
-      const offers = await dbService.getOffers();
+    execute: async (_rawArgs, context) => {
+      const client = resolveToolClient(context);
+      const offers = await dbService.getOffers(undefined, client);
       const tiersCount: Record<string, number> = {
         FULL_SCALE: 0,
         HIGH_SCALE: 0,
@@ -973,10 +999,11 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         offerId: { type: 'string' },
       },
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { offerId } = GetMappingStatusSchema.parse(rawArgs);
+      const client = resolveToolClient(context);
       if (!offerId) {
-        const offers = await dbService.getOffers();
+        const offers = await dbService.getOffers(undefined, client);
         return {
           totalOffers: offers.length,
           mappedLpCount: offers.filter((o) => o.landing_page_url).length,
@@ -984,7 +1011,7 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         };
       }
 
-      const offer = await dbService.getOfferById(offerId);
+      const offer = await dbService.getOfferById(offerId, client);
       if (!offer) {
         throw new AiToolError('NOT_FOUND', `Oferta com ID ${offerId} não encontrada.`);
       }
@@ -1018,9 +1045,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         cursor: { type: 'string' },
       },
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const args = SearchDeepDivesSchema.parse(rawArgs);
-      const deepDives = await dbService.getDeepDives();
+      const client = resolveToolClient(context);
+      const deepDives = await dbService.getDeepDives(client);
       let filtered = [...deepDives];
 
       if (args.query && args.query.trim()) {
@@ -1066,7 +1094,7 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         offerId: { type: 'string' },
       },
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { deepDiveId, offerId } = GetDeepDiveSchema.parse(rawArgs);
       const targetId = deepDiveId || offerId;
 
@@ -1074,7 +1102,9 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         throw new AiToolError('INVALID_ARGUMENT', 'Informe deepDiveId ou offerId.');
       }
 
-      const deepDive = await dbService.getDeepDiveById(targetId);
+      const client = resolveToolClient(context);
+      const deepDives = await dbService.getDeepDives(client);
+      const deepDive = deepDives.find((d) => d.id === targetId || d.offer_id === targetId);
       if (!deepDive) {
         throw new AiToolError('NOT_FOUND', `Dossiê de Inteligência não encontrado para ID ${targetId}.`);
       }
@@ -1097,9 +1127,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         limit: { type: 'number', default: 20 },
       },
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const args = SearchInsightsSchema.parse(rawArgs);
-      const deepDives = await dbService.getDeepDives();
+      const client = resolveToolClient(context);
+      const deepDives = await dbService.getDeepDives(client);
       const allInsights: any[] = [];
 
       for (const d of deepDives) {
@@ -1150,9 +1181,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         niche: { type: 'string' },
       },
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const args = SearchPatternsSchema.parse(rawArgs);
-      const deepDives = await dbService.getDeepDives();
+      const client = resolveToolClient(context);
+      const deepDives = await dbService.getDeepDives(client);
       const allPatterns: any[] = [];
 
       for (const d of deepDives) {
@@ -1202,9 +1234,10 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
       },
       required: ['offerId'],
     },
-    execute: async (rawArgs) => {
+    execute: async (rawArgs, context) => {
       const { offerId } = GetOfferHistorySchema.parse(rawArgs);
-      const offer = await dbService.getOfferById(offerId);
+      const client = resolveToolClient(context);
+      const offer = await dbService.getOfferById(offerId, client);
 
       if (!offer) {
         throw new AiToolError('NOT_FOUND', `Oferta com ID ${offerId} não encontrada.`);
@@ -1448,10 +1481,11 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         meta_page_id: { type: 'string', description: 'Meta Page ID (numeric string)' },
       },
     },
-    execute: async (rawArgs: any) => {
+    execute: async (rawArgs: any, context) => {
       const args = CheckOfferDuplicateSchema.parse(rawArgs);
+      const client = resolveToolClient(context);
       const { OfferDuplicateService } = await import('@/lib/offer/offer-duplicate-service');
-      return await OfferDuplicateService.checkOne(args);
+      return await OfferDuplicateService.checkOne(args, client);
     },
   },
 ];
@@ -1460,14 +1494,18 @@ export function getAiToolByName(name: string): AiToolContract | undefined {
   return AI_TOOLS_LIST.find((t) => t.name === name);
 }
 
-export async function executeAiTool(name: string, rawArgs: Record<string, any>): Promise<any> {
+export async function executeAiTool(
+  name: string,
+  rawArgs: Record<string, any>,
+  context?: AiToolExecutionContext
+): Promise<any> {
   const tool = getAiToolByName(name);
   if (!tool) {
     throw new AiToolError('NOT_FOUND', `Ferramenta de IA '${name}' não encontrada.`);
   }
 
   try {
-    return await tool.execute(rawArgs);
+    return await tool.execute(rawArgs, context);
   } catch (err: any) {
     if (err instanceof AiToolError) throw err;
     throw new AiToolError('INTERNAL_ERROR', err.message || 'Erro interno ao executar ferramenta de IA.');

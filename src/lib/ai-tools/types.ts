@@ -4,6 +4,7 @@ export type AiToolErrorCode =
   | 'INVALID_ARGUMENT'
   | 'LIMIT_EXCEEDED'
   | 'DATA_NOT_MAPPED'
+  | 'DATA_SOURCE_UNAVAILABLE'
   | 'INTERNAL_ERROR';
 
 export class AiToolError extends Error {
@@ -13,6 +14,15 @@ export class AiToolError extends Error {
     this.name = 'AiToolError';
     this.code = code;
   }
+}
+
+export interface AiToolExecutionContext {
+  authMethod?: string;
+  token?: string;
+  staticToken?: string;
+  userId?: string;
+  email?: string;
+  workspaceId?: string;
 }
 
 export interface AiToolContract {
@@ -44,7 +54,7 @@ export interface AiToolContract {
     };
     [key: string]: any;
   };
-  execute: (args: Record<string, any>) => Promise<any>;
+  execute: (args: Record<string, any>, context?: AiToolExecutionContext) => Promise<any>;
 }
 
 export type McpAuthMode = 'token' | 'oauth' | 'hybrid';

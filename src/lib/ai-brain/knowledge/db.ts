@@ -16,25 +16,34 @@ const SOURCES_FILE = path.join(LOCAL_STORAGE_DIR, 'sources.json');
 const JOBS_FILE = path.join(LOCAL_STORAGE_DIR, 'jobs.json');
 const USAGE_FILE = path.join(LOCAL_STORAGE_DIR, 'usage.json');
 
+const isLocalMode = process.env.DATA_BACKEND === 'local';
+
 function ensureLocalStorage() {
-  if (!fs.existsSync(LOCAL_STORAGE_DIR)) {
-    fs.mkdirSync(LOCAL_STORAGE_DIR, { recursive: true });
-  }
-  const initFile = (filePath: string) => {
-    if (!fs.existsSync(filePath)) {
-      fs.writeFileSync(filePath, JSON.stringify([]), 'utf-8');
+  if (!isLocalMode || typeof window !== 'undefined') return;
+  try {
+    if (!fs.existsSync(LOCAL_STORAGE_DIR)) {
+      fs.mkdirSync(LOCAL_STORAGE_DIR, { recursive: true });
     }
-  };
-  initFile(DOCUMENTS_FILE);
-  initFile(CHUNKS_FILE);
-  initFile(SOURCES_FILE);
-  initFile(JOBS_FILE);
-  initFile(USAGE_FILE);
+    const initFile = (filePath: string) => {
+      if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, JSON.stringify([]), 'utf-8');
+      }
+    };
+    initFile(DOCUMENTS_FILE);
+    initFile(CHUNKS_FILE);
+    initFile(SOURCES_FILE);
+    initFile(JOBS_FILE);
+    initFile(USAGE_FILE);
+  } catch (err) {
+    // Non-fatal if filesystem is read-only (serverless)
+  }
 }
 
 function getLocalData<T>(filePath: string): T[] {
+  if (!isLocalMode || typeof window !== 'undefined') return [];
   ensureLocalStorage();
   try {
+    if (!fs.existsSync(filePath)) return [];
     const raw = fs.readFileSync(filePath, 'utf-8');
     return JSON.parse(raw);
   } catch {
@@ -43,8 +52,13 @@ function getLocalData<T>(filePath: string): T[] {
 }
 
 function saveLocalData<T>(filePath: string, data: T[]) {
+  if (!isLocalMode || typeof window !== 'undefined') return;
   ensureLocalStorage();
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch {
+    // ignore serverless write errors
+  }
 }
 
 export class KnowledgeDatabaseService {
@@ -69,13 +83,15 @@ export class KnowledgeDatabaseService {
   async getSources(): Promise<KnowledgeSource[]> {
     if (isSupabaseConfigured() && supabase) {
       try {
-        const { data } = await supabase.from('knowledge_sources').select('*');
-        if (data && data.length > 0) return data as KnowledgeSource[];
+        const { data, error } = await supabase.from('knowledge_sources').select('*');
+        if (!error && data) {
+          return (data || []) as KnowledgeSource[];
+        }
       } catch (err) {
-        console.warn('Supabase getSources fallback:', err);
+        console.warn('Supabase getSources warning:', err);
       }
     }
-    return getLocalData<KnowledgeSource>(SOURCES_FILE);
+    return isLocalMode ? getLocalData<KnowledgeSource>(SOURCES_FILE) : [];
   }
 
   async getSourceById(id: string): Promise<KnowledgeSource | null> {
@@ -163,7 +179,7 @@ export class KnowledgeDatabaseService {
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (!error && data && data.length > 0) {
+        if (!error && data) {
           return data.map((d: any) => ({
             id: d.id,
             sourceId: d.source_id || d.sourceId || 'src_legacy',
@@ -189,10 +205,10 @@ export class KnowledgeDatabaseService {
           }));
         }
       } catch (err) {
-        console.warn('Supabase getDocuments fallback:', err);
+        console.warn('Supabase getDocuments error:', err);
       }
     }
-    return getLocalData<KnowledgeDocument>(DOCUMENTS_FILE);
+    return isLocalMode ? getLocalData<KnowledgeDocument>(DOCUMENTS_FILE) : [];
   }
 
   async getDocumentById(id: string): Promise<KnowledgeDocument | null> {
@@ -206,7 +222,7 @@ export class KnowledgeDatabaseService {
         let query = supabase.from('knowledge_chunks').select('*');
         if (documentId) query = query.eq('document_id', documentId);
         const { data, error } = await query;
-        if (!error && data && data.length > 0) {
+        if (!error && data) {
           return data.map((c: any) => ({
             id: c.id,
             documentId: c.document_id || c.documentId,
@@ -225,9 +241,11 @@ export class KnowledgeDatabaseService {
           }));
         }
       } catch (err) {
-        console.warn('Supabase getChunks fallback:', err);
+        console.warn('Supabase getChunks error:', err);
       }
     }
+
+    if (!isLocalMode) return [];
 
     const local = getLocalData<KnowledgeChunk>(CHUNKS_FILE).map((c: any) => ({
       id: c.id,

@@ -2,7 +2,7 @@
 // OFFER MINER - UNIFIED DATABASE & STORAGE SERVICE (PIPELINE & AUDIT READY)
 // ==============================================================================
 
-import { supabase, isSupabaseConfigured } from './client';
+import { supabase, isSupabaseConfigured, createAdminSupabaseClient, createAuthenticatedSupabaseClient } from './client';
 import {
   Offer,
   OfferSnapshot,
@@ -307,7 +307,7 @@ export const dbService = {
   // --------------------------------------------------------------------------
   // OFFERS
   // --------------------------------------------------------------------------
-  async getOffers(filters?: Partial<OfferFiltersState>): Promise<Offer[]> {
+  async getOffers(filters?: Partial<OfferFiltersState>, client?: any): Promise<Offer[]> {
     let allOffers: Offer[] = [];
 
     if (isLocalBackend()) {
@@ -360,8 +360,10 @@ export const dbService = {
         };
       });
     } else {
-      // REGRA ARQUITETURAL (FASE 16 & 17): Supabase é o backend CANÔNICO OBRIGATÓRIO
-      if (!isSupabaseConfigured() || !supabase) {
+      // REGRA ARQUITETURAL: Supabase é o backend CANÔNICO OBRIGATÓRIO
+      const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+
+      if (!isSupabaseConfigured() || !activeClient) {
         this._lastError = {
           message: 'Supabase não configurado no ambiente. Configure NEXT_PUBLIC_SUPABASE_URL.',
           timestamp: new Date().toISOString(),
@@ -369,7 +371,7 @@ export const dbService = {
         throw new Error(this._lastError.message);
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await activeClient
         .from('offers')
         .select(`
           *,
@@ -543,10 +545,12 @@ export const dbService = {
     return res.resolvedCheckoutUrl || offer.checkout_url || null;
   },
 
-  async getOfferById(id: string): Promise<Offer | null> {
-    if (isSupabaseConfigured() && supabase) {
+  async getOfferById(id: string, client?: any): Promise<Offer | null> {
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await activeClient
           .from('offers')
           .select(`
             *,
@@ -571,9 +575,12 @@ export const dbService = {
       }
     }
 
-    const all = await this.getOffers();
-    const offer = all.find((o) => o.id === id);
-    return offer || null;
+    if (isLocalBackend()) {
+      const all = await this.getOffers(undefined, client);
+      const offer = all.find((o) => o.id === id);
+      return offer || null;
+    }
+    return null;
   },
 
   // --------------------------------------------------------------------------
@@ -1451,21 +1458,26 @@ export const dbService = {
       .sort((a, b) => (a.position_index || 0) - (b.position_index || 0));
   },
 
-  async getCheckoutCaptures(offerId: string): Promise<any[]> {
-    if (isSupabaseConfigured() && supabase) {
+  async getCheckoutCaptures(offerId: string, client?: any): Promise<any[]> {
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        const { data } = await supabase
+        const { data } = await activeClient
           .from('checkout_captures')
           .select('*')
           .eq('offer_id', offerId)
           .order('captured_at', { ascending: false });
-        if (data && data.length > 0) return data;
+        if (data) return data;
       } catch (err) {
         console.warn('Supabase getCheckoutCaptures error:', err);
       }
     }
-    const all = getLocal<any[]>(STORAGE_KEYS.CHECKOUT_CAPTURES, []);
-    return all.filter((c) => c.offer_id === offerId).sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime());
+    if (isLocalBackend()) {
+      const all = getLocal<any[]>(STORAGE_KEYS.CHECKOUT_CAPTURES, []);
+      return all.filter((c) => c.offer_id === offerId).sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime());
+    }
+    return [];
   },
 
   async addSnapshot(offerId: string, activeAdsCount: number, price?: number | null): Promise<OfferSnapshot> {
@@ -1834,20 +1846,21 @@ export const dbService = {
     return batchId ? all.filter((r) => r.import_batch_id === batchId) : all;
   },
 
-  async getDeepDives(): Promise<DeepDive[]> {
-    const offers = await this.getOffers();
+  async getDeepDives(client?: any): Promise<DeepDive[]> {
+    const offers = await this.getOffers(undefined, client);
     let deepDives: DeepDive[] = [];
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
 
-    if (isSupabaseConfigured() && supabase) {
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        const { data, error } = await supabase.from('deep_dives').select('*').order('created_at', { ascending: false });
+        const { data, error } = await activeClient.from('deep_dives').select('*').order('created_at', { ascending: false });
         if (!error && data) deepDives = data as DeepDive[];
       } catch (err) {
         console.warn('Supabase getDeepDives error:', err);
       }
     }
 
-    if (deepDives.length === 0) {
+    if (deepDives.length === 0 && isLocalBackend()) {
       deepDives = getLocal<DeepDive[]>(STORAGE_KEYS.DEEP_DIVES, []);
     }
 
@@ -2462,19 +2475,20 @@ export const dbService = {
   // --------------------------------------------------------------------------
   // OFFER ADS & MEDIA (SEPARATE ADS VS MEDIA ENTITIES)
   // --------------------------------------------------------------------------
-  async getOfferAds(offerId: string): Promise<OfferAdWithMedia[]> {
+  async getOfferAds(offerId: string, client?: any): Promise<OfferAdWithMedia[]> {
     let ads: OfferAd[] = [];
     let mediaList: OfferAdMedia[] = [];
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
 
-    if (isSupabaseConfigured() && supabase) {
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        const { data: adsData } = await supabase
+        const { data: adsData } = await activeClient
           .from('offer_ads')
           .select('*')
           .eq('offer_id', offerId)
           .order('started_at', { ascending: false });
 
-        const { data: mediaData } = await supabase
+        const { data: mediaData } = await activeClient
           .from('offer_ad_media')
           .select('*')
           .eq('offer_id', offerId);
@@ -2486,7 +2500,7 @@ export const dbService = {
       }
     }
 
-    if (ads.length === 0) {
+    if (ads.length === 0 && isLocalBackend()) {
       const allAds = getLocal<OfferAd[]>(STORAGE_KEYS.ADS, []);
       ads = allAds.filter((a) => a.offer_id === offerId);
       const allMedia = getLocal<OfferAdMedia[]>(STORAGE_KEYS.AD_MEDIA, []);
@@ -2781,10 +2795,12 @@ export const dbService = {
     return record;
   },
 
-  async getLandingPageCaptures(offerId: string): Promise<LandingPageCapture[]> {
-    if (isSupabaseConfigured() && supabase) {
+  async getLandingPageCaptures(offerId: string, client?: any): Promise<LandingPageCapture[]> {
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await activeClient
           .from('landing_page_captures')
           .select('*')
           .eq('offer_id', offerId)
@@ -2795,10 +2811,13 @@ export const dbService = {
       }
     }
 
-    const all = getLocal<LandingPageCapture[]>(STORAGE_KEYS.LP_CAPTURES, []);
-    return all
-      .filter((c) => c.offer_id === offerId)
-      .sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime());
+    if (isLocalBackend()) {
+      const all = getLocal<LandingPageCapture[]>(STORAGE_KEYS.LP_CAPTURES, []);
+      return all
+        .filter((c) => c.offer_id === offerId)
+        .sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime());
+    }
+    return [];
   },
 
   async getLatestLandingPageCapture(offerId: string): Promise<LandingPageCapture | null> {

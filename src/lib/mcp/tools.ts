@@ -15,6 +15,10 @@ export const MCP_TOOLS = MCP_TOOLS_DEFINITIONS;
 /**
  * Executes an MCP tool by delegating directly to the shared AI Tool Layer
  */
-export async function executeMcpTool(name: string, rawArgs: Record<string, any>): Promise<any> {
-  return await executeAiTool(name, rawArgs);
+export async function executeMcpTool(
+  name: string,
+  rawArgs: Record<string, any>,
+  authContext?: any
+): Promise<any> {
+  return await executeAiTool(name, rawArgs, authContext);
 }

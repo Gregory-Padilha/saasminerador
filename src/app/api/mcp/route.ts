@@ -112,13 +112,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const authContext = {
+    authMethod: authResult.authMethod || 'none',
+    token: authResult.authMethod === 'oauth_token' ? token : undefined,
+    staticToken: authResult.authMethod === 'static_token' ? token : undefined,
+    userId: authResult.userId || undefined,
+    email: authResult.email || undefined,
+    workspaceId: 'ws_default_001',
+  };
+
   // Handle single request or batch requests
   if (Array.isArray(body)) {
-    const responses = await Promise.all(body.map((singleReq) => handleMcpRequest(singleReq, reqOrigin)));
+    const responses = await Promise.all(
+      body.map((singleReq) => handleMcpRequest(singleReq, reqOrigin, authContext))
+    );
     return NextResponse.json(responses, { headers: CORS_HEADERS });
   }
 
-  const response = await handleMcpRequest(body, reqOrigin);
+  const response = await handleMcpRequest(body, reqOrigin, authContext);
   return NextResponse.json(response, { headers: CORS_HEADERS });
 }
 

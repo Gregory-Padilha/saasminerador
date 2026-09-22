@@ -137,9 +137,10 @@ export async function getDashboardSummary(period: PeriodFilter = '7d'): Promise<
   );
 
   // Creatives captured count
-  const allMedia = (dbService as any).getLocal ? (dbService as any).getLocal('offerminer_ad_media_v2', []) : [];
-  const allCreatives = (dbService as any).getLocal ? (dbService as any).getLocal('offerminer_creatives_v2', []) : [];
-  const capturedCreativesCount = (allMedia.length || 0) + (allCreatives.length || 0);
+  const capturedCreativesCount = offers.reduce(
+    (sum, o) => sum + (o.creatives?.length || o.unique_creatives_count || 0),
+    0
+  );
 
   // Landing pages mapped
   const lpsAvailableList = offers.filter((o) => Boolean(o.landing_page_url || o.landing_page_url_original));

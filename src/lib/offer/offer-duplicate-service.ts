@@ -394,8 +394,8 @@ export class OfferDuplicateService {
   /**
    * Checks a single offer candidate against the existing Offer Miner database
    */
-  static async checkOne(input: CheckOfferDuplicateInput): Promise<CheckOfferDuplicateResult> {
-    const offers = await dbService.getOffers();
+  static async checkOne(input: CheckOfferDuplicateInput, client?: any): Promise<CheckOfferDuplicateResult> {
+    const offers = await dbService.getOffers(undefined, client);
     const index = buildCatalogIndex(offers);
     const evaluation = evaluateCandidateAgainstIndex(input, index);
 
@@ -418,7 +418,7 @@ export class OfferDuplicateService {
    * Bulk check up to 50 candidates in a single optimized pass.
    * Also performs intra-batch session deduplication.
    */
-  static async checkMany(input: CheckOffersDuplicatesInput): Promise<CheckOffersDuplicatesResult> {
+  static async checkMany(input: CheckOffersDuplicatesInput, client?: any): Promise<CheckOffersDuplicatesResult> {
     const candidates = Array.isArray(input.candidates) ? input.candidates.slice(0, 50) : [];
     if (candidates.length === 0) {
       return {
@@ -432,7 +432,7 @@ export class OfferDuplicateService {
       };
     }
 
-    const offers = await dbService.getOffers();
+    const offers = await dbService.getOffers(undefined, client);
     const index = buildCatalogIndex(offers);
 
     // Intra-session dedupe tracker for the current batch

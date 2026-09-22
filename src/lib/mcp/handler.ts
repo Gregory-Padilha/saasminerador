@@ -24,7 +24,15 @@ export interface JsonRpcResponse {
  */
 export async function handleMcpRequest(
   reqBody: JsonRpcRequest,
-  origin: 'local' | 'remote' = 'local'
+  origin: 'local' | 'remote' = 'local',
+  authContext?: {
+    authMethod?: string;
+    token?: string;
+    staticToken?: string;
+    userId?: string;
+    email?: string;
+    workspaceId?: string;
+  }
 ): Promise<JsonRpcResponse> {
   const startTime = Date.now();
   const id = reqBody.id ?? null;
@@ -110,7 +118,7 @@ export async function handleMcpRequest(
         }
 
         try {
-          const toolResult = await executeMcpTool(name, toolArgs || {});
+          const toolResult = await executeMcpTool(name, toolArgs || {}, authContext);
           logMcpRequest(name, Date.now() - startTime, true, undefined, origin);
 
           return {

@@ -7,6 +7,7 @@ function getSupabaseUrl(): string {
 
 function getSupabaseKey(): string {
   return (
+    process.env.SUPABASE_SECRET_KEY ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
@@ -59,3 +60,31 @@ export const supabase = new Proxy({} as SupabaseClient, {
     return typeof val === 'function' ? val.bind(client) : val;
   },
 });
+
+export function createAuthenticatedSupabaseClient(bearerToken: string): SupabaseClient | null {
+  const url = getSupabaseUrl();
+  const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || getSupabaseKey()).trim();
+  if (!url || !anonKey || !bearerToken) return null;
+  return createClient(url, anonKey, {
+    auth: { persistSession: false },
+    global: {
+      headers: {
+        Authorization: `Bearer ${bearerToken.trim()}`,
+      },
+    },
+  });
+}
+
+export function createAdminSupabaseClient(): SupabaseClient | null {
+  const url = getSupabaseUrl();
+  const secretKey = (
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    ''
+  ).trim();
+  if (!url || !secretKey) return null;
+  return createClient(url, secretKey, {
+    auth: { persistSession: false },
+  });
+}
+
