@@ -1050,7 +1050,7 @@ export const dbService = {
     return nextVal;
   },
 
-  async saveOffer(offerData: Partial<Offer>): Promise<Offer> {
+  async saveOffer(offerData: Partial<Offer>, client?: any): Promise<Offer> {
     const now = new Date().toISOString();
     const offerId = offerData.id || generateId();
     const existing = offerData.id ? await this.getOfferById(offerData.id) : null;
@@ -1124,9 +1124,10 @@ export const dbService = {
       is_demo_data: false,
     };
 
-    if (isSupabaseConfigured() && supabase && !isLocalBackend()) {
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+    if (isSupabaseConfigured() && activeClient && !isLocalBackend()) {
       try {
-        const { error: saveError } = await supabase.from('offers').upsert(fullOffer);
+        const { error: saveError } = await activeClient.from('offers').upsert(fullOffer);
         if (saveError) {
           console.warn('Supabase saveOffer warning (falling back to resilient store):', saveError.message);
         }
@@ -1149,7 +1150,7 @@ export const dbService = {
     return fullOffer;
   },
 
-  async updateOffer(id: string, updates: Partial<Offer>): Promise<Offer | null> {
+  async updateOffer(id: string, updates: Partial<Offer>, client?: any): Promise<Offer | null> {
     const now = new Date().toISOString();
     const existing = await this.getOfferById(id);
     const merged = { ...existing, ...updates };
@@ -1163,9 +1164,10 @@ export const dbService = {
       updated_at: now,
     };
 
-    if (isSupabaseConfigured() && supabase) {
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        await supabase.from('offers').update(payload).eq('id', id);
+        await activeClient.from('offers').update(payload).eq('id', id);
       } catch (err) {
         console.warn('Supabase updateOffer error:', err);
       }
@@ -3570,7 +3572,7 @@ export const dbService = {
   // --------------------------------------------------------------------------
   // OFFER ANALYSIS JOBS (META ADS LINK PIPELINE - HARDENED & SERVERLESS RESILIENT)
   // --------------------------------------------------------------------------
-  async createAnalysisJob(jobData: Partial<OfferAnalysisJob>): Promise<OfferAnalysisJob> {
+  async createAnalysisJob(jobData: Partial<OfferAnalysisJob>, client?: any): Promise<OfferAnalysisJob> {
     const now = new Date().toISOString();
     const jobId = jobData.id || `job_${generateId()}`;
     const workspaceId = jobData.workspace_id || 'ws_default_001';
@@ -3611,9 +3613,10 @@ export const dbService = {
       updated_at: now,
     };
 
-    if (isSupabaseConfigured() && supabase) {
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        const { data: user } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+        const { data: user } = await activeClient.auth.getUser().catch(() => ({ data: { user: null } }));
         // Try inserting with all fields
         const insertPayload: Record<string, any> = {
           id: newJob.id,
@@ -3631,7 +3634,7 @@ export const dbService = {
           updated_at: now,
         };
 
-        const { error: insErr } = await supabase.from('offer_analysis_jobs').insert(insertPayload);
+        const { error: insErr } = await activeClient.from('offer_analysis_jobs').insert(insertPayload);
         if (insErr) {
           console.warn('Supabase createAnalysisJob insert error:', insErr.message);
         }
@@ -3645,12 +3648,13 @@ export const dbService = {
     return newJob;
   },
 
-  async getAnalysisJob(jobId: string): Promise<OfferAnalysisJob | null> {
+  async getAnalysisJob(jobId: string, client?: any): Promise<OfferAnalysisJob | null> {
     let job: OfferAnalysisJob | null = null;
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
 
-    if (isSupabaseConfigured() && supabase) {
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await activeClient
           .from('offer_analysis_jobs')
           .select('*')
           .eq('id', jobId)
@@ -3681,12 +3685,13 @@ export const dbService = {
     return job;
   },
 
-  async getAnalysisJobs(): Promise<OfferAnalysisJob[]> {
+  async getAnalysisJobs(client?: any): Promise<OfferAnalysisJob[]> {
     let jobs: OfferAnalysisJob[] = [];
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
 
-    if (isSupabaseConfigured() && supabase) {
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await activeClient
           .from('offer_analysis_jobs')
           .select('*')
           .order('created_at', { ascending: false });
@@ -3730,7 +3735,7 @@ export const dbService = {
           status: 'stale',
           error_code: 'TIMEOUT_STALE_AUTO_RECOVERED',
           stage_message: normalized.stage_message,
-        }).catch(() => {});
+        }, activeClient).catch(() => {});
       }
 
       return normalized;
@@ -3741,7 +3746,8 @@ export const dbService = {
 
   async updateAnalysisJob(
     jobId: string,
-    updates: Partial<OfferAnalysisJob>
+    updates: Partial<OfferAnalysisJob>,
+    client?: any
   ): Promise<OfferAnalysisJob | null> {
     const now = new Date().toISOString();
     const heartbeatTime = updates.last_heartbeat_at || now;
@@ -3761,9 +3767,10 @@ export const dbService = {
       updated_at: updateTime,
     };
 
-    if (isSupabaseConfigured() && supabase) {
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+    if (isSupabaseConfigured() && activeClient) {
       try {
-        await supabase
+        await activeClient
           .from('offer_analysis_jobs')
           .update(payloadToDb)
           .eq('id', jobId);

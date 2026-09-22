@@ -60,8 +60,8 @@ const STEP_PROGRESS: Record<AtomicStepName, number> = {
  * Executes exactly ONE atomic step of the analysis pipeline for the given job.
  * This guarantees execution well within serverless timeouts.
  */
-export async function executeAtomicStep(jobId: string): Promise<StepExecutionResult> {
-  const job = await dbService.getAnalysisJob(jobId);
+export async function executeAtomicStep(jobId: string, client?: any): Promise<StepExecutionResult> {
+  const job = await dbService.getAnalysisJob(jobId, client);
   if (!job) {
     throw new Error(`Job de análise ${jobId} não encontrado.`);
   }
@@ -107,32 +107,47 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
       // STEP 1: RESOLVE META ADS
       // -----------------------------------------------------------------------
       case 'RESOLVE_META': {
-        addLog('RESOLVE_META', 'Validando e inspecionando URL da Meta Ads Library...');
+        addLog('META_STEP_STARTED', 'Iniciando análise do step Meta Ads...');
+        addLog('META_URL_RECEIVED', `URL recebida: ${job.input_url}`);
         const validation = validateMetaAdsLibraryUrl(job.input_url);
         if (!validation.isValid) {
+          addLog('META_STEP_FAILED', `Falha de validação: ${validation.error}`);
           throw new Error(validation.error || 'URL da Meta Ads Library inválida.');
         }
 
         const cleanMetaUrl = validation.normalizedUrl || job.input_url;
+        addLog('META_URL_NORMALIZED', `URL normalizada: ${cleanMetaUrl}`);
+
         let advertiserName: string | null = null;
         let candidateName: string | null = null;
         let candidateDestUrl: string | null = null;
         let activeAdsCount = offer.active_ads_count || 1;
+        let adId: string | null = null;
+        let pageId: string | null = null;
 
         // Try extracting parameters from URL
         try {
           const parsed = new URL(cleanMetaUrl);
-          const pageId = parsed.searchParams.get('view_all_page_id');
+          pageId = parsed.searchParams.get('view_all_page_id');
+          adId = parsed.searchParams.get('id');
           const q = parsed.searchParams.get('q');
+
+          if (adId) {
+            addLog('META_AD_ID_EXTRACTED', `Meta Ad ID extraído: ${adId}`);
+            candidateName = `Anúncio Meta #${adId}`;
+          }
+          if (pageId) {
+            advertiserName = `Página Meta #${pageId}`;
+          }
           if (q) {
             candidateName = decodeURIComponent(q).slice(0, 80);
             advertiserName = candidateName;
-          } else if (pageId) {
-            advertiserName = `Anunciante ID ${pageId}`;
           }
         } catch {
           // ignore url parse error
         }
+
+        addLog('META_PAGE_NAVIGATION_STARTED', 'Iniciando inspeção HTTP resiliente de metadados...');
 
         // Lightweight HTTP probe (no Playwright)
         try {
@@ -148,15 +163,16 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
           });
           clearTimeout(timeout);
 
+          addLog('META_PAGE_LOADED', `Resposta HTTP recebida com status ${res.status}`);
+          addLog('META_DATA_EXTRACTION_STARTED', 'Extraindo dados da página do anúncio...');
+
           if (res.ok) {
             const html = await res.text();
-            // Extract title tag
             const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
             if (titleMatch && titleMatch[1] && !titleMatch[1].includes('Meta Ads Library')) {
-              advertiserName = advertiserName || titleMatch[1].trim();
+              advertiserName = titleMatch[1].trim();
             }
 
-            // Extract any destination URLs from page hrefs
             const hrefMatches = html.match(/href="(https?:\/\/[^"#\s]+)"/gi) || [];
             for (const hm of hrefMatches) {
               const u = hm.replace(/^href="/i, '').replace(/"$/, '');
@@ -172,21 +188,21 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
             }
           }
         } catch (fetchErr: any) {
-          addLog('RESOLVE_META', `Aviso na conexão HTTP Meta: ${fetchErr.message}. Usando dados extraídos da URL.`);
+          addLog('META_DATA_EXTRACTION_COMPLETED', `Aviso HTTP Meta: ${fetchErr.message}. Utilizando dados de parâmetros.`);
         }
 
         // Fallback names if still default
         if (!advertiserName || advertiserName.includes('Identificando')) {
-          advertiserName = offer.advertiser && !offer.advertiser.includes('Identificando') ? offer.advertiser : 'Anunciante Meta';
+          advertiserName = offer.advertiser && !offer.advertiser.includes('Identificando') ? offer.advertiser : (pageId ? `Página Meta #${pageId}` : 'Anunciante Meta');
         }
         if (!candidateName || candidateName.includes('Analisando')) {
-          candidateName = offer.product_name && !offer.product_name.includes('Analisando') ? offer.product_name : `Oferta ${advertiserName}`;
+          candidateName = offer.product_name && !offer.product_name.includes('Analisando') ? offer.product_name : (adId ? `Anúncio Meta #${adId}` : `Oferta ${advertiserName}`);
         }
 
-        // Invariant: active_ads_count != unique_creatives_count (Phase 37)
         activeAdsCount = Math.max(activeAdsCount, 1);
+        addLog('META_DATA_EXTRACTION_COMPLETED', `Dados extraídos: Anunciante: "${advertiserName}", Oferta: "${candidateName}".`);
 
-        // Update Offer
+        // Update Offer immediately (persist first useful result)
         offer = await dbService.updateOffer(offer.id, {
           product_name: candidateName,
           advertiser: advertiserName,
@@ -196,11 +212,13 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
           landing_page_url_original: candidateDestUrl || offer.landing_page_url_original,
           status: 'ANALYZING',
           updated_at: now,
-        }) || offer;
+        }, client) || offer;
+
+        addLog('META_DATA_PERSISTED', 'Primeiro resultado útil persistido no banco com sucesso.');
+        addLog('META_STEP_COMPLETED', 'Step Meta Ads concluído.');
 
         nextStep = 'DISCOVER_LANDING_PAGE';
-        stepMessage = `Meta Ads identificado. Anunciante: "${advertiserName}". Buscando Landing Page...`;
-        addLog('RESOLVE_META', stepMessage);
+        stepMessage = `Meta Ads identificado: "${candidateName}". Anunciante: "${advertiserName}". Buscando Landing Page...`;
         break;
       }
 
@@ -276,7 +294,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
             checkout_discovery_status: 'FOUND',
             lp_mapping_status: 'NOT_APPLICABLE',
             updated_at: now,
-          }) || offer;
+          }, client) || offer;
 
           nextStep = 'MAP_CHECKOUT';
           stepMessage = 'Destino identificado como Direto ao Checkout. Mapeando checkout...';
@@ -287,7 +305,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
             landing_page_flow_type: 'LP_TO_CHECKOUT',
             landing_page_url_status: 'AVAILABLE',
             updated_at: now,
-          }) || offer;
+          }, client) || offer;
 
           nextStep = 'MAP_LANDING_PAGE';
           stepMessage = `Landing Page descoberta (${domain}). Mapeando elementos da página...`;
@@ -300,95 +318,103 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
       // STEP 3: MAP LANDING PAGE (HTML EXTRACTION WITHOUT PLAYWRIGHT)
       // -----------------------------------------------------------------------
       case 'MAP_LANDING_PAGE': {
-        addLog('MAP_LANDING_PAGE', 'Extraindo copy, headline, entregáveis e links da Landing Page...');
-        const lpUrl = offer.landing_page_url;
-
+        addLog('MAP_LANDING_PAGE', 'Carregando HTML da Landing Page de forma leve e segura...');
+        const lpUrl = offer.landing_page_url || offer.landing_page_url_original;
         if (!lpUrl) {
+          addLog('MAP_LANDING_PAGE', 'URL da Landing Page indisponível. Avançando para enriquecimento.');
           nextStep = 'ENRICH_OFFER';
-          stepMessage = 'Sem Landing Page para mapear. Prosseguindo...';
+          stepMessage = 'Landing Page indisponível. Enriquecendo com dados parciais...';
           break;
         }
 
-        let html = '';
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 8000);
-          const res = await fetch(lpUrl, {
-            signal: controller.signal,
-            headers: {
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-              Accept: 'text/html,application/xhtml+xml',
-            },
-          });
-          clearTimeout(timeout);
-          if (res.ok) {
-            html = await res.text();
-          }
-        } catch (fetchErr: any) {
-          addLog('MAP_LANDING_PAGE', `Aviso ao baixar HTML da Landing Page: ${fetchErr.message}`);
+        const ssrf = validateScrapingUrl(lpUrl);
+        if (!ssrf.valid) {
+          addLog('MAP_LANDING_PAGE', `URL da Landing Page bloqueada por segurança (${ssrf.reason || 'INVÁLIDA'}).`);
+          nextStep = 'ENRICH_OFFER';
+          stepMessage = 'URL bloqueada por segurança. Prosseguindo com dados parciais...';
+          break;
         }
 
-        let extractedHeadline = offer.headline || null;
-        let extractedSubheadline = offer.subheadline || null;
+        let extractedHeadline = offer.headline || '';
+        let extractedSubheadline = offer.subheadline || '';
         let extractedPrice = offer.price || null;
         const deliverables: OfferDeliverable[] = [];
         const bonuses: OfferBonus[] = [];
         const ctaLinks: string[] = [];
 
-        if (html) {
-          // Extract H1 / Title
-          const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-          if (h1Match && h1Match[1]) {
-            extractedHeadline = h1Match[1].replace(/<[^>]+>/g, '').trim().slice(0, 160);
-          }
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 7000);
+          const res = await fetch(lpUrl, {
+            signal: controller.signal,
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+              Accept: 'text/html,application/xhtml+xml',
+            },
+          });
+          clearTimeout(timeout);
 
-          // Extract H2 / Subheadline
-          const h2Match = html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
-          if (h2Match && h2Match[1]) {
-            extractedSubheadline = h2Match[1].replace(/<[^>]+>/g, '').trim().slice(0, 200);
-          }
+          if (res.ok) {
+            const html = await res.text();
 
-          // Extract Price patterns: R$ 47,00 or R$ 97
-          const priceMatches = html.match(/R\$\s*(\d{1,4}[,\.]\d{2}|\d{2,4})/gi);
-          if (priceMatches && priceMatches.length > 0) {
-            const firstClean = priceMatches[0].replace(/[^\d,\.]/g, '').replace(',', '.');
-            const parsedNum = parseFloat(firstClean);
-            if (!isNaN(parsedNum) && parsedNum > 0 && parsedNum < 10000) {
-              extractedPrice = parsedNum;
+            // Extract Headline (h1 / h2)
+            const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+            if (h1Match && h1Match[1]) {
+              extractedHeadline = h1Match[1].replace(/<[^>]+>/g, '').trim().slice(0, 300);
+            }
+
+            // Extract Subheadline
+            const h2Match = html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+            if (h2Match && h2Match[1]) {
+              extractedSubheadline = h2Match[1].replace(/<[^>]+>/g, '').trim().slice(0, 300);
+            }
+
+            // Extract Price (R$ XX,XX)
+            const priceMatch = html.match(/R\$\s*(\d{1,4}(?:[.,]\d{2})?)/i);
+            if (priceMatch && priceMatch[1]) {
+              const numStr = priceMatch[1].replace('.', '').replace(',', '.');
+              const p = parseFloat(numStr);
+              if (!isNaN(p) && p > 0 && p < 10000) {
+                extractedPrice = p;
+              }
+            }
+
+            // Extract CTA Links (buttons, anchors)
+            const hrefMatches = html.match(/href="([^"#\s]+)"/gi) || [];
+            for (const hm of hrefMatches) {
+              const u = hm.replace(/^href="/i, '').replace(/"$/, '');
+              if (u.startsWith('http')) {
+                ctaLinks.push(u);
+              }
+            }
+
+            // Extract potential deliverables (list items)
+            const liMatches = html.match(/<li[^>]*>([\s\S]*?)<\/li>/gi) || [];
+            for (let i = 0; i < Math.min(liMatches.length, 5); i++) {
+              const text = liMatches[i].replace(/<[^>]+>/g, '').trim();
+              if (text.length > 5 && text.length < 150) {
+                deliverables.push({
+                  id: `del_${i + 1}`,
+                  offer_id: offer.id,
+                  title: text,
+                  created_at: now,
+                });
+              }
             }
           }
-
-          // Extract all CTA links
-          const hrefMatches = html.match(/href="([^"#\s]+)"/gi) || [];
-          for (const hm of hrefMatches) {
-            const link = hm.replace(/^href="/i, '').replace(/"$/, '');
-            if (link.startsWith('http://') || link.startsWith('https://')) {
-              ctaLinks.push(link);
-            }
-          }
-
-          // Generate extracted deliverables from text if available
-          if (extractedHeadline) {
-            deliverables.push({
-              id: `del_${offer.id}_1`,
-              offer_id: offer.id,
-              title: 'Método Principal / Acesso Completo',
-              name: 'Método Principal / Acesso Completo',
-              description: extractedHeadline,
-              created_at: now,
-            });
-          }
+        } catch (fetchErr: any) {
+          addLog('MAP_LANDING_PAGE', `Aviso ao carregar Landing Page: ${fetchErr.message}. Usando dados disponíveis.`);
         }
 
-        // Store discovered CTAs into progress_data for next step
+        // Persist discovered CTA links into job progress_data
         const existingProgress = job.progress_data || {};
         await dbService.updateAnalysisJob(job.id, {
           progress_data: {
             ...existingProgress,
             cta_links: ctaLinks.slice(0, 30),
           },
-        });
+        }, client);
 
         // Update Offer
         offer = await dbService.updateOffer(offer.id, {
@@ -400,7 +426,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
           deliverables: deliverables.length > 0 ? deliverables : offer.deliverables,
           bonuses: bonuses.length > 0 ? bonuses : offer.bonuses,
           updated_at: now,
-        }) || offer;
+        }, client) || offer;
 
         nextStep = 'DISCOVER_CHECKOUT';
         stepMessage = `Landing Page mapeada. Headline: "${extractedHeadline || 'Identificada'}". Buscando Checkout...`;
@@ -451,7 +477,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
             checkout_discovery_status: 'FOUND',
             checkout_discovery_at: now,
             updated_at: now,
-          }) || offer;
+          }, client) || offer;
 
           nextStep = 'MAP_CHECKOUT';
           stepMessage = `Checkout localizado: ${checkoutProvider} (${discoveredCheckoutUrl.slice(0, 45)}...).`;
@@ -460,7 +486,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
             checkout_discovery_status: 'NOT_FOUND',
             checkout_mapping_status: 'NOT_MAPPED',
             updated_at: now,
-          }) || offer;
+          }, client) || offer;
 
           nextStep = 'ENRICH_OFFER';
           stepMessage = 'Checkout não encontrado nos CTAs visíveis. Prosseguindo para enriquecimento.';
@@ -480,7 +506,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
             checkout_mapping_status: 'SUCCESS',
             checkout_mapped_at: now,
             updated_at: now,
-          }) || offer;
+          }, client) || offer;
           stepMessage = `Checkout mapeado (${offer.checkout_platform || 'Plataforma'}).`;
         } else {
           stepMessage = 'Checkout não disponível para mapeamento.';
@@ -530,7 +556,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
           system_score: oppScore ?? discScore,
           activity_status: 'Ativa',
           updated_at: now,
-        }) || offer;
+        }, client) || offer;
 
         nextStep = 'FINALIZE';
         stepMessage = `Oferta enriquecida. Nicho: ${niche}. Score: ${oppScore ?? discScore} pts.`;
@@ -551,7 +577,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
         offer = await dbService.updateOffer(offer.id, {
           status: finalStatus,
           updated_at: now,
-        }) || offer;
+        }, client) || offer;
 
         nextStep = 'COMPLETED';
         stepMessage = `Análise concluída com sucesso! Status: ${finalStatus}.`;
@@ -612,7 +638,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
         last_heartbeat_at: now,
         logs,
       },
-    });
+    }, client);
 
     return {
       jobId: job.id,
@@ -636,7 +662,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
     await dbService.updateOffer(offer.id, {
       status: 'DADOS_PARCIAIS',
       updated_at: now,
-    }).catch(() => {});
+    }, client).catch(() => {});
 
     const updatedJob = await dbService.updateAnalysisJob(job.id, {
       status: isFatal ? 'failed' : 'retrying',
@@ -650,7 +676,7 @@ export async function executeAtomicStep(jobId: string): Promise<StepExecutionRes
         logs,
         last_error: err.message,
       },
-    });
+    }, client);
 
     return {
       jobId: job.id,

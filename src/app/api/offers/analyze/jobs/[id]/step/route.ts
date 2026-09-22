@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeAtomicStep } from '@/lib/offer/atomic-analysis-runner';
 import { dbService } from '@/lib/supabase/db';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
@@ -14,7 +15,8 @@ export async function POST(
       return NextResponse.json({ error: 'ID do job não fornecido.' }, { status: 400 });
     }
 
-    const job = await dbService.getAnalysisJob(jobId);
+    const supabase = await createServerSupabaseClient();
+    const job = await dbService.getAnalysisJob(jobId, supabase);
     if (!job) {
       return NextResponse.json({ error: 'Job de análise não encontrado.' }, { status: 404 });
     }
@@ -33,7 +35,7 @@ export async function POST(
     }
 
     // Execute exactly one atomic step
-    const result = await executeAtomicStep(jobId);
+    const result = await executeAtomicStep(jobId, supabase);
 
     return NextResponse.json({
       success: true,

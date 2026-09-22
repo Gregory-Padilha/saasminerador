@@ -213,9 +213,9 @@ export function AnalysisProgressDrawer({
             <div>
               <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
                 Painel de Análise
-                {isRunning && (
+                {isRunning && secondsSinceHeartbeat <= 300 && (
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 animate-pulse">
-                    EM ANDAMENTO
+                    EM EXECUÇÃO
                   </span>
                 )}
                 {isCompleted && (
@@ -223,9 +223,9 @@ export function AnalysisProgressDrawer({
                     CONCLUÍDA
                   </span>
                 )}
-                {(isFailed || isStale) && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">
-                    {isStale ? 'EXPIRADA' : 'FALHA'}
+                {(isFailed || isStale || secondsSinceHeartbeat > 300) && !isCompleted && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    ANÁLISE INTERROMPIDA
                   </span>
                 )}
               </h2>
@@ -331,8 +331,9 @@ export function AnalysisProgressDrawer({
                     .filter(([key]) => key !== 'COMPLETED')
                     .map(([key, config], idx) => {
                       const StepItIcon = config.icon;
-                      const isCurrent = activeJob.current_step === key;
+                      const isCurrent = activeJob.current_step === key && (activeJob.status === 'running' || activeJob.status === 'queued');
                       const isPast =
+                        activeJob.status === 'completed' ||
                         (activeJob.progress_percent ?? 0) >
                         (idx + 1) * (100 / Object.keys(STEP_LABELS).length);
 
@@ -343,25 +344,33 @@ export function AnalysisProgressDrawer({
                             isCurrent
                               ? 'bg-blue-500/10 border-blue-500/40 text-white'
                               : isPast
-                              ? 'bg-slate-900/40 border-slate-800 text-slate-400'
-                              : 'bg-slate-950/20 border-slate-800/40 text-slate-400'
+                              ? 'bg-slate-900/40 border-slate-800 text-slate-300'
+                              : 'bg-slate-950/20 border-slate-800/40 text-slate-500'
                           }`}
                         >
                           <div className="flex items-center gap-2.5">
                             <StepItIcon
                               className={`w-3.5 h-3.5 ${
-                                isCurrent ? 'text-blue-400 animate-spin' : isPast ? 'text-emerald-400' : 'text-slate-400'
+                                isCurrent ? 'text-blue-400 animate-spin' : isPast ? 'text-emerald-400' : 'text-slate-500'
                               }`}
                             />
                             <span className="text-[11px] font-medium">{config.label}</span>
                           </div>
                           {isCurrent && (
-                            <span className="text-[10px] font-bold text-blue-400 uppercase">
-                              Executando
+                            <span className="text-[10px] font-bold text-blue-400 flex items-center gap-1">
+                              ● Executando
                             </span>
                           )}
                           {isPast && (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-[10px] font-medium text-emerald-400 flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              Concluído
+                            </span>
+                          )}
+                          {!isCurrent && !isPast && (
+                            <span className="text-[10px] text-slate-500">
+                              ○ Aguardando
+                            </span>
                           )}
                         </div>
                       );

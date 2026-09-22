@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/supabase/db';
 import { executeAtomicStep } from '@/lib/offer/atomic-analysis-runner';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
@@ -14,7 +15,8 @@ export async function GET(
       return NextResponse.json({ error: 'ID de job inválido.' }, { status: 400 });
     }
 
-    const job = await dbService.getAnalysisJob(jobId);
+    const supabase = await createServerSupabaseClient();
+    const job = await dbService.getAnalysisJob(jobId, supabase);
     if (!job) {
       return NextResponse.json({ error: 'Job de análise não encontrado.' }, { status: 404 });
     }
@@ -35,7 +37,15 @@ export async function GET(
         error_code: 'TIMEOUT_STALE_WATCHDOG',
         stage_message:
           'Análise expirada (mais de 5 minutos sem comunicação com o worker). Você pode tentar novamente.',
-      });
+      }, supabase);
+
+      if (job.offer_id) {
+        await dbService.updateOffer(job.offer_id, {
+          status: 'DADOS_PARCIAIS',
+          updated_at: new Date().toISOString(),
+        }, supabase).catch(() => {});
+      }
+
       return NextResponse.json({ success: true, job: staleJob });
     }
 
@@ -58,7 +68,8 @@ export async function POST(
     const body = await req.json();
     const { action } = body;
 
-    const job = await dbService.getAnalysisJob(jobId);
+    const supabase = await createServerSupabaseClient();
+    const job = await dbService.getAnalysisJob(jobId, supabase);
     if (!job) {
       return NextResponse.json({ error: 'Job de análise não encontrado.' }, { status: 404 });
     }
@@ -68,11 +79,11 @@ export async function POST(
       const updated = await dbService.updateAnalysisJob(jobId, {
         status: 'cancelled',
         stage_message: 'Análise cancelada pelo usuário.',
-      });
+      }, supabase);
       return NextResponse.json({ success: true, job: updated });
     }
 
-    // Retry action
+    // Retry action (re-uses existing offer_id, increments attempt, triggers Step 1)
     if (action === 'retry') {
       const currentAttempt = job.attempt || 1;
       const maxAttempts = job.max_attempts || 3;
@@ -87,20 +98,28 @@ export async function POST(
       }
 
       const now = new Date().toISOString();
-      const updated = await dbService.updateAnalysisJob(jobId, {
+      await dbService.updateAnalysisJob(jobId, {
         status: 'running',
+        current_step: 'RESOLVE_META',
         attempt: currentAttempt + 1,
         last_heartbeat_at: now,
         stage_message: `Reiniciando análise (tentativa ${currentAttempt + 1}/${maxAttempts})...`,
         error_code: null,
-      });
+      }, supabase);
 
-      return NextResponse.json({ success: true, job: updated });
+      // Execute Step 1 immediately on retry
+      const stepResult = await executeAtomicStep(jobId, supabase);
+
+      return NextResponse.json({
+        success: true,
+        job: stepResult.job,
+        offer: stepResult.offer,
+      });
     }
 
     // Step action
     if (action === 'step') {
-      const result = await executeAtomicStep(jobId);
+      const result = await executeAtomicStep(jobId, supabase);
       return NextResponse.json({
         success: true,
         jobId: result.jobId,

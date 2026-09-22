@@ -156,9 +156,25 @@ export function Topbar() {
             >
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               <span>
-                {activeJob.progress_percent
-                  ? `${activeJob.progress_percent}% · ${activeJob.current_step || 'Analisando'}`
-                  : '1 análise em andamento...'}
+                {activeJob.current_step && ({
+                  RESOLVE_META: '1/7 · Meta Ads',
+                  DISCOVER_LANDING_PAGE: '2/7 · Identificação LP',
+                  MAP_LANDING_PAGE: '3/7 · Mapeamento LP',
+                  DISCOVER_CHECKOUT: '4/7 · Checkout',
+                  MAP_CHECKOUT: '5/7 · Estrutura Checkout',
+                  ENRICH_OFFER: '6/7 · Enriquecimento',
+                  FINALIZE: '7/7 · Finalização',
+                } as Record<string, string>)[activeJob.current_step]
+                  ? `ANALISANDO: ${({
+                      RESOLVE_META: '1/7 · Meta Ads',
+                      DISCOVER_LANDING_PAGE: '2/7 · Identificação LP',
+                      MAP_LANDING_PAGE: '3/7 · Mapeamento LP',
+                      DISCOVER_CHECKOUT: '4/7 · Checkout',
+                      MAP_CHECKOUT: '5/7 · Estrutura Checkout',
+                      ENRICH_OFFER: '6/7 · Enriquecimento',
+                      FINALIZE: '7/7 · Finalização',
+                    } as Record<string, string>)[activeJob.current_step]}`
+                  : `${activeJob.progress_percent || 10}% · Analisando`}
               </span>
             </button>
           )}
