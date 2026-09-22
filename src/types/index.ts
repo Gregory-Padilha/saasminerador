@@ -466,10 +466,12 @@ export type OfferAnalysisStage =
 export type OfferAnalysisJobStatus =
   | 'queued'
   | 'running'
+  | 'retrying'
   | 'completed'
   | 'completed_with_warnings'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'stale';
 
 export interface OfferAnalysisJobProgressData {
   offer_id?: string | null;
@@ -493,12 +495,24 @@ export interface OfferAnalysisJobProgressData {
   duplicate_detected?: boolean;
   existing_offer_id?: string | null;
   existing_offer_name?: string | null;
+  current_step?: string;
+  progress_percent?: number;
+  last_heartbeat_at?: string;
+  attempt?: number;
+  max_attempts?: number;
+  workspace_id?: string;
+  cta_links?: string[];
+  final_status?: string;
+  last_error?: string;
+  error_code?: string | null;
+  error_message_safe?: string | null;
   warnings?: string[];
   logs?: Array<{ timestamp: string; stage: OfferAnalysisStage | string; message: string }>;
 }
 
 export interface OfferAnalysisJob {
   id: string;
+  workspace_id?: string;
   user_id?: string | null;
   offer_id?: string | null;
   input_url: string;
@@ -506,12 +520,18 @@ export interface OfferAnalysisJob {
   status: OfferAnalysisJobStatus;
   current_stage: OfferAnalysisStage;
   stage_message?: string;
+  current_step?: string;
+  progress_percent?: number;
+  last_heartbeat_at?: string;
+  attempt?: number;
+  max_attempts?: number;
   progress_data: OfferAnalysisJobProgressData;
   started_at: string;
   completed_at?: string | null;
   failed_at?: string | null;
   error_code?: string | null;
   error_message?: string | null;
+  error_message_safe?: string | null;
   mode?: 'new' | 'update';
   created_at: string;
   updated_at: string;
@@ -1074,6 +1094,7 @@ export interface CreativeMetricsUpdate {
 
 export interface Offer {
   id: string;
+  workspace_id?: string;
   user_id?: string;
   source?: string | null;
   product_name: string;

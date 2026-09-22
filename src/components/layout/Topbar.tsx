@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase/client';
 import { dbService } from '@/lib/supabase/db';
 import { AnalyzeOfferModal } from '@/components/offers/AnalyzeOfferModal';
+import { AnalysisProgressDrawer } from '@/components/offers/AnalysisProgressDrawer';
 import { ImportDropdown } from '@/components/imports/ImportDropdown';
 import { JsonImportModal } from '@/components/imports/JsonImportModal';
 import { OfferAnalysisJob } from '@/types';
@@ -29,6 +30,7 @@ export function Topbar() {
   const [healthDotClass, setHealthDotClass] = useState('bg-slate-500');
 
   const [isAnalyzeModalOpen, setIsAnalyzeModalOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
   const [activeJob, setActiveJob] = useState<OfferAnalysisJob | null>(null);
 
@@ -84,13 +86,22 @@ export function Topbar() {
     };
   }, []);
 
-  // Poll active analysis jobs
+  // Poll active analysis jobs & run staleness watchdog (Phase 13 & 24)
   useEffect(() => {
     let isMounted = true;
     const checkActiveJobs = async () => {
       try {
         const jobs = await dbService.getAnalysisJobs();
-        const running = jobs.find((j) => j.status === 'running' || j.status === 'queued');
+        const now = Date.now();
+        const STALE_TIMEOUT_MS = 5 * 60 * 1000;
+
+        // Only count healthy jobs whose heartbeat is under 5 minutes old (Phase 24)
+        const running = jobs.find((j) => {
+          if (j.status !== 'running' && j.status !== 'queued' && j.status !== 'retrying') return false;
+          const hb = new Date(j.last_heartbeat_at || j.updated_at || j.created_at).getTime();
+          return now - hb < STALE_TIMEOUT_MS;
+        });
+
         if (isMounted) {
           setActiveJob(running || null);
         }
@@ -100,7 +111,7 @@ export function Topbar() {
     };
 
     checkActiveJobs();
-    const interval = setInterval(checkActiveJobs, 4000);
+    const interval = setInterval(checkActiveJobs, 3000);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -136,15 +147,19 @@ export function Topbar() {
 
         {/* Right Actions */}
         <div className="flex items-center gap-3">
-          {/* Active Job Floating Pill */}
+          {/* Active Job Floating Pill - Clicking opens Realtime Progress Drawer */}
           {activeJob && (
             <button
-              onClick={() => setIsAnalyzeModalOpen(true)}
-              className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 transition animate-pulse"
-              title="Clique para acompanhar a análise em andamento"
+              onClick={() => setIsDrawerOpen(true)}
+              className="hidden lg:flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-semibold bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 transition shadow-sm cursor-pointer"
+              title="Clique para abrir o painel de acompanhamento em tempo real"
             >
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>1 análise em andamento...</span>
+              <span>
+                {activeJob.progress_percent
+                  ? `${activeJob.progress_percent}% · ${activeJob.current_step || 'Analisando'}`
+                  : '1 análise em andamento...'}
+              </span>
             </button>
           )}
 
@@ -204,6 +219,24 @@ export function Topbar() {
         isOpen={isAnalyzeModalOpen}
         onClose={() => setIsAnalyzeModalOpen(false)}
         initialJobId={activeJob?.id}
+      />
+
+      {/* Realtime Analysis Progress Drawer (Phase 17, 18, 19) */}
+      <AnalysisProgressDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        activeJob={activeJob}
+        onJobUpdated={(updatedJob) => {
+          if (
+            updatedJob.status === 'completed' ||
+            updatedJob.status === 'cancelled' ||
+            updatedJob.status === 'stale'
+          ) {
+            setActiveJob(null);
+          } else {
+            setActiveJob(updatedJob);
+          }
+        }}
       />
 
       {/* Global JSON Import Modal */}

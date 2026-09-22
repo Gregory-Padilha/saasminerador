@@ -100,6 +100,15 @@ export function AnalyzeOfferModal({ isOpen, onClose, initialJobId }: AnalyzeOffe
           const data = await res.json();
           if (data.success && data.job && isMounted) {
             setJob(data.job);
+            // If job is actively running, trigger next atomic step
+            if (data.job.status === 'running') {
+              fetch(`/api/offers/analyze/jobs/${activeJobId}/step`, { method: 'POST' })
+                .then((r) => r.json())
+                .then((stepData) => {
+                  if (stepData.job && isMounted) setJob(stepData.job);
+                })
+                .catch(() => {});
+            }
             if (data.job.status === 'completed' || data.job.status === 'completed_with_warnings') {
               const targetOfferId = data.job.offer_id || data.job.progress_data?.offer_id;
               if (targetOfferId) {

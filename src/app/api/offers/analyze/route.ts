@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/supabase/db';
-import { validateMetaAdsLibraryUrl } from '@/lib/meta-ads/url-resolver';
-import { runOfferAnalysisPipeline } from '@/lib/offer/analysis-pipeline';
+import { validateMetaAdsLibraryUrl } from '@/lib/meta-ads/url-utils';
 import { detectExistingOfferAdvanced, generateDedupeKey } from '@/lib/deduplication';
 import { Offer } from '@/types';
 
@@ -92,7 +91,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Create Persistent Offer Record IMMEDIATELY (if not already existing)
+    // 4. Create Persistent Offer Record IMMEDIATELY (T+0 canonical persistence)
     const now = new Date().toISOString();
     if (!targetOffer) {
       const dedupeKey = generateDedupeKey({
@@ -100,11 +99,14 @@ export async function POST(req: NextRequest) {
       });
 
       targetOffer = await dbService.saveOffer({
+        workspace_id: 'ws_default_001',
         product_name: 'Analisando Anúncios (Meta Ads)...',
         advertiser: 'Identificando Anunciante...',
         meta_ads_url: cleanUrl,
         status: 'ANALYZING',
         source: 'MANUAL_META_URL',
+        lp_mapping_status: 'NOT_MAPPED',
+        checkout_mapping_status: 'NOT_MAPPED',
         dedupe_key: dedupeKey,
         created_at: now,
         updated_at: now,
@@ -119,19 +121,27 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 5. Create Analysis Job in DB bound to targetOffer.id
+    // 5. Create Analysis Job in DB bound to targetOffer.id with initial heartbeat
     const job = await dbService.createAnalysisJob({
+      workspace_id: 'ws_default_001',
+      offer_id: targetOffer.id,
       input_url: cleanUrl,
       meta_ads_url_original: url,
-      status: 'queued',
+      status: 'running',
+      current_step: 'RESOLVE_META',
+      progress_percent: 10,
+      attempt: 1,
+      max_attempts: 3,
       current_stage: 'validating_url',
-      stage_message: 'Validação concluída. Oferta registrada e agendando análise...',
+      stage_message: 'Oferta registrada. Iniciando análise passo a passo...',
       mode,
-      offer_id: targetOffer.id,
       progress_data: {
+        workspace_id: 'ws_default_001',
         offer_id: targetOffer.id,
         product_name: targetOffer.product_name,
         advertiser: targetOffer.advertiser,
+        current_step: 'RESOLVE_META',
+        progress_percent: 10,
         logs: [
           {
             timestamp: now,
@@ -142,11 +152,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // 6. Trigger Orchestrated Pipeline in Background with targetOffer.id
-    runOfferAnalysisPipeline(job.id, { mode, offerId: targetOffer.id }).catch((err) => {
-      console.error(`[BACKGROUND PIPELINE ERROR] Job ${job.id}:`, err);
-    });
-
+    // Return immediately to UI (T+0 ~ 1-2 seconds response, no blocking background promise)
     return NextResponse.json({
       success: true,
       jobId: job.id,

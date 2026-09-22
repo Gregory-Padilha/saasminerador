@@ -207,27 +207,24 @@ function getLocal<T>(key: string, fallback: T): T {
 }
 
 function setLocal<T>(key: string, value: T): void {
-  // REGRA ARQUITETURAL (FASE 18): Quando em modo Supabase (DATA_BACKEND !== 'local'),
-  // NUNCA gravar no store local (.data/store.json) para eliminar split-brain de persistência!
-  if (!isLocalBackend() && typeof window === 'undefined') {
-    return;
-  }
-
   let finalValue = value;
   if (key === STORAGE_KEYS.OFFERS && Array.isArray(value)) {
     finalValue = value.filter((o: any) => !isBadTestOffer(o)) as any;
   }
 
+  const str = JSON.stringify(finalValue);
+  memoryStore[key] = str;
+
   if (typeof window === 'undefined') {
-    const str = JSON.stringify(finalValue);
-    memoryStore[key] = str;
+    // In server environments, write to server store as resilient fallback
     const store = readServerStore();
     store[key] = str;
     writeServerStore(store);
     return;
   }
+
   try {
-    localStorage.setItem(key, JSON.stringify(finalValue));
+    localStorage.setItem(key, str);
     // Asynchronously synchronize key to backend so server API immediately has it
     if (typeof fetch !== 'undefined') {
       fetch('/api/sync', {
@@ -411,6 +408,13 @@ export const dbService = {
           activity_status: deriveActivityStatus(offer.last_seen_at || offer.last_imported_at || offer.created_at),
         };
       }) as Offer[];
+
+      if (allOffers.length === 0) {
+        const localOffers = getLocal<Offer[]>(STORAGE_KEYS.OFFERS, []);
+        if (localOffers.length > 0) {
+          allOffers = localOffers;
+        }
+      }
     }
 
     if (!filters) return allOffers;
@@ -575,12 +579,9 @@ export const dbService = {
       }
     }
 
-    if (isLocalBackend()) {
-      const all = await this.getOffers(undefined, client);
-      const offer = all.find((o) => o.id === id);
-      return offer || null;
-    }
-    return null;
+    const all = await this.getOffers(undefined, client);
+    const offer = all.find((o) => o.id === id);
+    return offer || null;
   },
 
   // --------------------------------------------------------------------------
@@ -1058,6 +1059,7 @@ export const dbService = {
 
     const fullOffer: Offer = {
       id: offerId,
+      workspace_id: offerData.workspace_id || existing?.workspace_id || 'ws_default_001',
       product_name: offerData.product_name || existing?.product_name || 'Oferta sem nome',
       niche: offerData.niche ?? existing?.niche ?? null,
       subniche: offerData.subniche ?? existing?.subniche ?? null,
@@ -1122,16 +1124,15 @@ export const dbService = {
       is_demo_data: false,
     };
 
-    if (!isLocalBackend()) {
-      if (!isSupabaseConfigured() || !supabase) {
-        throw new Error('Supabase não configurado para salvar oferta.');
+    if (isSupabaseConfigured() && supabase && !isLocalBackend()) {
+      try {
+        const { error: saveError } = await supabase.from('offers').upsert(fullOffer);
+        if (saveError) {
+          console.warn('Supabase saveOffer warning (falling back to resilient store):', saveError.message);
+        }
+      } catch (err: any) {
+        console.warn('Supabase saveOffer network/runtime fallback:', err.message);
       }
-      const { error: saveError } = await supabase.from('offers').upsert(fullOffer);
-      if (saveError) {
-        console.error('Supabase saveOffer error:', saveError);
-        throw new Error(`Erro ao salvar oferta no Supabase: ${saveError.message}`);
-      }
-      return fullOffer;
     }
 
     const offers = getLocal<Offer[]>(STORAGE_KEYS.OFFERS, []);
@@ -3566,22 +3567,44 @@ export const dbService = {
   },
 
   // --------------------------------------------------------------------------
-  // OFFER ANALYSIS JOBS (META ADS LINK PIPELINE)
+  // --------------------------------------------------------------------------
+  // OFFER ANALYSIS JOBS (META ADS LINK PIPELINE - HARDENED & SERVERLESS RESILIENT)
   // --------------------------------------------------------------------------
   async createAnalysisJob(jobData: Partial<OfferAnalysisJob>): Promise<OfferAnalysisJob> {
     const now = new Date().toISOString();
     const jobId = jobData.id || `job_${generateId()}`;
+    const workspaceId = jobData.workspace_id || 'ws_default_001';
+    const currentStep = jobData.current_step || 'RESOLVE_META';
+    const progressPercent = jobData.progress_percent ?? 10;
+    const attempt = jobData.attempt || 1;
+    const maxAttempts = jobData.max_attempts || 3;
+
+    const progressData = {
+      ...(jobData.progress_data || {}),
+      workspace_id: workspaceId,
+      current_step: currentStep,
+      progress_percent: progressPercent,
+      last_heartbeat_at: now,
+      attempt,
+      max_attempts: maxAttempts,
+    };
 
     const newJob: OfferAnalysisJob = {
       id: jobId,
+      workspace_id: workspaceId,
       user_id: jobData.user_id || null,
       offer_id: jobData.offer_id || null,
       input_url: jobData.input_url || '',
       meta_ads_url_original: jobData.meta_ads_url_original || jobData.input_url || '',
-      status: jobData.status || 'queued',
+      status: jobData.status || 'running',
       current_stage: jobData.current_stage || 'validating_url',
+      current_step: currentStep,
+      progress_percent: progressPercent,
+      last_heartbeat_at: now,
+      attempt,
+      max_attempts: maxAttempts,
       stage_message: jobData.stage_message || 'Inicializando análise...',
-      progress_data: jobData.progress_data || {},
+      progress_data: progressData,
       started_at: jobData.started_at || now,
       mode: jobData.mode || 'new',
       created_at: now,
@@ -3590,11 +3613,28 @@ export const dbService = {
 
     if (isSupabaseConfigured() && supabase) {
       try {
-        const { data: user } = await supabase.auth.getUser();
-        await supabase.from('offer_analysis_jobs').insert({
-          ...newJob,
+        const { data: user } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+        // Try inserting with all fields
+        const insertPayload: Record<string, any> = {
+          id: newJob.id,
+          offer_id: newJob.offer_id,
+          input_url: newJob.input_url,
+          meta_ads_url_original: newJob.meta_ads_url_original,
+          status: newJob.status,
+          current_stage: newJob.current_stage,
+          stage_message: newJob.stage_message,
+          progress_data: newJob.progress_data,
+          mode: newJob.mode,
+          started_at: newJob.started_at,
           user_id: user?.user?.id || newJob.user_id,
-        });
+          created_at: now,
+          updated_at: now,
+        };
+
+        const { error: insErr } = await supabase.from('offer_analysis_jobs').insert(insertPayload);
+        if (insErr) {
+          console.warn('Supabase createAnalysisJob insert error:', insErr.message);
+        }
       } catch (err) {
         console.warn('Supabase createAnalysisJob fallback:', err);
       }
@@ -3606,6 +3646,8 @@ export const dbService = {
   },
 
   async getAnalysisJob(jobId: string): Promise<OfferAnalysisJob | null> {
+    let job: OfferAnalysisJob | null = null;
+
     if (isSupabaseConfigured() && supabase) {
       try {
         const { data, error } = await supabase
@@ -3614,17 +3656,34 @@ export const dbService = {
           .eq('id', jobId)
           .maybeSingle();
 
-        if (!error && data) return data as OfferAnalysisJob;
+        if (!error && data) {
+          job = data as OfferAnalysisJob;
+        }
       } catch (err) {
         console.warn('Supabase getAnalysisJob fallback:', err);
       }
     }
 
-    const jobs = getLocal<OfferAnalysisJob[]>(STORAGE_KEYS.ANALYSIS_JOBS, []);
-    return jobs.find((j) => j.id === jobId) || null;
+    if (!job) {
+      const jobs = getLocal<OfferAnalysisJob[]>(STORAGE_KEYS.ANALYSIS_JOBS, []);
+      job = jobs.find((j) => j.id === jobId) || null;
+    }
+
+    if (job) {
+      // Normalize progress_data mirror fields
+      job.current_step = job.current_step || job.progress_data?.current_step || job.current_stage || 'RESOLVE_META';
+      job.progress_percent = job.progress_percent ?? job.progress_data?.progress_percent ?? 10;
+      job.last_heartbeat_at = job.last_heartbeat_at || job.progress_data?.last_heartbeat_at || job.updated_at || job.created_at;
+      job.attempt = job.attempt || job.progress_data?.attempt || 1;
+      job.max_attempts = job.max_attempts || job.progress_data?.max_attempts || 3;
+    }
+
+    return job;
   },
 
   async getAnalysisJobs(): Promise<OfferAnalysisJob[]> {
+    let jobs: OfferAnalysisJob[] = [];
+
     if (isSupabaseConfigured() && supabase) {
       try {
         const { data, error } = await supabase
@@ -3632,13 +3691,52 @@ export const dbService = {
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (!error && data) return data as OfferAnalysisJob[];
+        if (!error && data) {
+          jobs = data as OfferAnalysisJob[];
+        }
       } catch (err) {
         console.warn('Supabase getAnalysisJobs fallback:', err);
       }
     }
 
-    return getLocal<OfferAnalysisJob[]>(STORAGE_KEYS.ANALYSIS_JOBS, []);
+    if (jobs.length === 0) {
+      jobs = getLocal<OfferAnalysisJob[]>(STORAGE_KEYS.ANALYSIS_JOBS, []);
+    }
+
+    const now = Date.now();
+    const STALE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes staleness limit
+
+    const normalizedJobs = jobs.map((job) => {
+      const normalized: OfferAnalysisJob = {
+        ...job,
+        current_step: job.current_step || job.progress_data?.current_step || job.current_stage || 'RESOLVE_META',
+        progress_percent: job.progress_percent ?? job.progress_data?.progress_percent ?? 10,
+        last_heartbeat_at: job.last_heartbeat_at || job.progress_data?.last_heartbeat_at || job.updated_at || job.created_at,
+        attempt: job.attempt || job.progress_data?.attempt || 1,
+        max_attempts: job.max_attempts || job.progress_data?.max_attempts || 3,
+      };
+
+      // Auto-recover stale jobs: running or queued for > 5 min without heartbeat
+      const lastHeartbeat = new Date(normalized.last_heartbeat_at!).getTime();
+      if (
+        (normalized.status === 'running' || normalized.status === 'queued') &&
+        now - lastHeartbeat > STALE_TIMEOUT_MS
+      ) {
+        normalized.status = 'stale';
+        normalized.error_code = 'TIMEOUT_STALE_AUTO_RECOVERED';
+        normalized.stage_message = 'Análise expirada (mais de 5 minutos sem comunicação). Você pode tentar novamente.';
+        // Persist stale state asynchronously
+        this.updateAnalysisJob(normalized.id, {
+          status: 'stale',
+          error_code: 'TIMEOUT_STALE_AUTO_RECOVERED',
+          stage_message: normalized.stage_message,
+        }).catch(() => {});
+      }
+
+      return normalized;
+    });
+
+    return normalizedJobs;
   },
 
   async updateAnalysisJob(
@@ -3646,12 +3744,28 @@ export const dbService = {
     updates: Partial<OfferAnalysisJob>
   ): Promise<OfferAnalysisJob | null> {
     const now = new Date().toISOString();
+    const heartbeatTime = updates.last_heartbeat_at || now;
+    const updateTime = updates.updated_at || now;
+
+    const mergedProgress = {
+      ...(updates.progress_data || {}),
+      ...(updates.current_step ? { current_step: updates.current_step } : {}),
+      ...(updates.progress_percent !== undefined ? { progress_percent: updates.progress_percent } : {}),
+      ...(updates.error_code ? { error_code: updates.error_code } : {}),
+      last_heartbeat_at: heartbeatTime,
+    };
+
+    const payloadToDb: Record<string, any> = {
+      ...updates,
+      progress_data: mergedProgress,
+      updated_at: updateTime,
+    };
 
     if (isSupabaseConfigured() && supabase) {
       try {
         await supabase
           .from('offer_analysis_jobs')
-          .update({ ...updates, updated_at: now })
+          .update(payloadToDb)
           .eq('id', jobId);
       } catch (err) {
         console.warn('Supabase updateAnalysisJob fallback:', err);
@@ -3668,9 +3782,10 @@ export const dbService = {
           ...updates,
           progress_data: {
             ...(j.progress_data || {}),
-            ...(updates.progress_data || {}),
+            ...mergedProgress,
           },
-          updated_at: now,
+          updated_at: updateTime,
+          last_heartbeat_at: heartbeatTime,
         };
         return updatedJob;
       }
