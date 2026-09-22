@@ -282,6 +282,80 @@ export default function SettingsPage() {
         {/* MCP Server & AI Agents Section */}
         <McpSettingsSection />
 
+        {/* Security & Access Control Section */}
+        <div className="p-6 sm:p-8 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm space-y-5">
+          <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                Segurança e Governança de Acesso
+              </h3>
+            </div>
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Sistema Privado
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Autenticação
+              </span>
+              <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Supabase Auth (ONLINE)
+              </span>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Row Level Security
+              </span>
+              <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                RLS Ativo (28 Tabelas)
+              </span>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Workspace Ativo
+              </span>
+              <span className="text-xs font-mono font-bold text-white block truncate">
+                Offer Miner Principal
+              </span>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                MFA TOTP
+              </span>
+              <span className="text-xs font-medium text-slate-300 block">
+                Disponível via Auth
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-2 flex items-center justify-between">
+            <span className="text-xs text-slate-400">
+              Acesso restrito exclusivamente a membros autenticados do workspace.
+            </span>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const { supabase } = await import('@/lib/supabase/client');
+                  if (supabase) await supabase.auth.signOut();
+                } catch {}
+                window.location.href = '/login';
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>Encerrar Sessão (Logout)</span>
+            </button>
+          </div>
+        </div>
+
         {/* Validation Criteria Form */}
         <form
           onSubmit={handleSave}

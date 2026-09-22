@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/supabase/db';
+import { requireUser } from '@/lib/auth/require-user';
+import { requireWorkspace } from '@/lib/auth/require-workspace';
+import { requireRole } from '@/lib/auth/require-role';
 
 export const runtime = 'nodejs';
 
@@ -7,6 +10,12 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try {
+    await requireUser();
+  } catch (authErr: any) {
+    return NextResponse.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
+  }
+
   try {
     const { id } = await params;
     const offer = await dbService.getOfferById(id);
@@ -26,6 +35,15 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requireWorkspace();
+  } catch (authErr: any) {
+    return NextResponse.json(
+      { error: authErr.message || 'Unauthorized', code: 'UNAUTHORIZED' },
+      { status: authErr.statusCode || 401 }
+    );
+  }
+
+  try {
     const { id } = await params;
     const body = await req.json();
     const updated = await dbService.updateOffer(id, body);
@@ -41,6 +59,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requireRole(['OWNER', 'ADMIN']);
+  } catch (authErr: any) {
+    return NextResponse.json(
+      { error: authErr.message || 'Ação destrutiva restrita a OWNER ou ADMIN.', code: 'FORBIDDEN' },
+      { status: authErr.statusCode || 403 }
+    );
+  }
+
+  try {
     const { id } = await params;
     await dbService.deleteOffer(id);
 
@@ -49,3 +76,4 @@ export async function DELETE(
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+

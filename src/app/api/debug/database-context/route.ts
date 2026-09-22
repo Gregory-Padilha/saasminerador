@@ -3,10 +3,17 @@ import { dbService } from '@/lib/supabase/db';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { auditServerSecrets } from '@/lib/env/server';
 import { publicEnv } from '@/lib/env/public';
+import { requireUser } from '@/lib/auth/require-user';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
+  try {
+    await requireUser();
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
+  }
+
   try {
     const rawUrl = publicEnv.SUPABASE_URL;
     let projectRef: string | null = null;

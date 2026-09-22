@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { requireUser } from '@/lib/auth/require-user';
 
 export async function GET() {
+  try {
+    await requireUser();
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
+  }
+
   const configured = isSupabaseConfigured();
 
   if (!configured || !supabase) {

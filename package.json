@@ -7,6 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "mcp:stdio": "tsx scripts/offer-miner-mcp.ts",
+    "security:audit": "tsx scripts/security_audit.ts",
     "lint": "eslint"
   },
   "dependencies": {

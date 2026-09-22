@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/supabase/db';
+import { requireUser } from '@/lib/auth/require-user';
+import { requireWorkspace } from '@/lib/auth/require-workspace';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
+  try {
+    await requireUser();
+  } catch (authErr: any) {
+    return NextResponse.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const quickFilter = searchParams.get('quickFilter') || undefined;
@@ -48,11 +56,24 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  let wsCtx;
+  try {
+    wsCtx = await requireWorkspace();
+  } catch (authErr: any) {
+    return NextResponse.json(
+      { error: authErr.message || 'Unauthorized', code: 'UNAUTHORIZED' },
+      { status: authErr.statusCode || 401 }
+    );
+  }
+
   try {
     const body = await req.json();
     if (!body || !body.product_name) {
       return NextResponse.json({ error: 'Dados da oferta inválidos.' }, { status: 400 });
     }
+
+    // Always enforce server-side workspace_id
+    body.workspace_id = wsCtx.workspaceId;
 
     const savedOffer = await dbService.saveOffer(body);
 

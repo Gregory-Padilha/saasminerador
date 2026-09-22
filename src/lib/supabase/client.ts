@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
 function getSupabaseUrl(): string {
   return (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
@@ -39,7 +40,11 @@ export function getSupabaseClient(): SupabaseClient | null {
   const currentKey = getSupabaseKey();
 
   if (!_cachedClient || _cachedUrl !== currentUrl || _cachedKey !== currentKey) {
-    _cachedClient = createClient(currentUrl, currentKey);
+    if (typeof window !== 'undefined') {
+      _cachedClient = createBrowserClient(currentUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || currentKey);
+    } else {
+      _cachedClient = createClient(currentUrl, currentKey);
+    }
     _cachedUrl = currentUrl;
     _cachedKey = currentKey;
   }

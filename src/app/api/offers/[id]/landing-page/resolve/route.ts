@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/supabase/db';
 import { resolveLandingPageUrl, normalizeLandingPageUrl } from '@/lib/landing-page/resolver';
+import { requireWorkspace } from '@/lib/auth/require-workspace';
+import { validateScrapingUrl } from '@/lib/security/ssrf';
 
 export const runtime = 'nodejs';
 
@@ -8,6 +10,12 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  try {
+    await requireWorkspace();
+  } catch (authErr: any) {
+    return NextResponse.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
+  }
+
   try {
     const { id: offerId } = await params;
     if (!offerId) {
@@ -25,8 +33,15 @@ export async function POST(
     let offerToResolve = offer;
 
     // If a manual override URL is passed, update it first
-    if (typeof manualOverrideUrl === 'string') {
-      const cleanOverride = manualOverrideUrl.trim() ? normalizeLandingPageUrl(manualOverrideUrl) : null;
+    if (typeof manualOverrideUrl === 'string' && manualOverrideUrl.trim()) {
+      const ssrfCheck = validateScrapingUrl(manualOverrideUrl);
+      if (!ssrfCheck.valid) {
+        return NextResponse.json(
+          { error: `URL inválida ou bloqueada por política de segurança: ${ssrfCheck.reason}` },
+          { status: 400 }
+        );
+      }
+      const cleanOverride = normalizeLandingPageUrl(manualOverrideUrl);
       const updated = await dbService.updateOffer(offerId, {
         manual_override_url: cleanOverride,
       });

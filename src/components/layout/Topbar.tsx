@@ -13,7 +13,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
-import { isSupabaseConfigured } from '@/lib/supabase/client';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase/client';
 import { dbService } from '@/lib/supabase/db';
 import { AnalyzeOfferModal } from '@/components/offers/AnalyzeOfferModal';
 import { ImportDropdown } from '@/components/imports/ImportDropdown';
@@ -176,10 +176,26 @@ export function Topbar() {
           <Link
             href="/settings"
             className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700/80 flex items-center justify-center text-slate-300 hover:text-white hover:border-slate-600 transition"
-            title="Configurações e Perfil"
+            title="Configurações e Segurança"
           >
             <User className="w-4 h-4" />
           </Link>
+
+          {/* Global Logout Button */}
+          <button
+            onClick={async () => {
+              try {
+                if (supabase) {
+                  await supabase.auth.signOut();
+                }
+              } catch {}
+              window.location.href = '/login';
+            }}
+            className="p-2 rounded-lg bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700/60 hover:border-rose-500/30 transition text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+            title="Encerrar Sessão (Logout)"
+          >
+            <span className="hidden sm:inline">Sair</span>
+          </button>
         </div>
       </header>
 
