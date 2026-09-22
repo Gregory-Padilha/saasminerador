@@ -1,7 +1,7 @@
 import { McpLogEntry, McpServerConfig } from '@/types';
 import { serverEnv } from '@/lib/env/server';
 
-export const MCP_VERSION = '1.0.0';
+export const MCP_VERSION = '1.1.0';
 
 export const SERVER_INFO = {
   name: 'Offer Miner MCP',

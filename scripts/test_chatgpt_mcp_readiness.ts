@@ -101,13 +101,41 @@ async function runMcpReadinessVerification() {
 
   const dedupeTool = tools.find((t: any) => t.name === 'check_offers_duplicates');
   assert(Boolean(dedupeTool), 'TEST 3.3: check_offers_duplicates is present in tools list');
+  assert(dedupeTool?.title === 'Check Offer Duplicates', 'TEST 3.4: check_offers_duplicates has title "Check Offer Duplicates"');
+  assert(
+    dedupeTool?.annotations?.readOnlyHint === true &&
+      dedupeTool?.annotations?.destructiveHint === false &&
+      dedupeTool?.annotations?.openWorldHint === false,
+    'TEST 3.5: check_offers_duplicates declares readOnlyHint: true, destructiveHint: false, openWorldHint: false'
+  );
+  assert(
+    Array.isArray(dedupeTool?._meta?.ui?.visibility) &&
+      dedupeTool?._meta?.ui?.visibility.includes('model') &&
+      dedupeTool?._meta?.ui?.visibility.includes('app'),
+    'TEST 3.6: check_offers_duplicates UI visibility includes ["model", "app"]'
+  );
+
+  // Assert inputSchema does NOT contain any union array types like ['string', 'null']
+  const candProps = dedupeTool?.inputSchema?.properties?.candidates?.items?.properties || {};
+  const hasInvalidUnion = Object.values(candProps).some((p: any) => Array.isArray(p?.type));
+  assert(!hasInvalidUnion, 'TEST 3.7: check_offers_duplicates inputSchema has clean JSON Schema types (no type unions)');
+
+  // Assert outputSchema
+  assert(
+    dedupeTool?.outputSchema?.properties?.results && dedupeTool?.outputSchema?.properties?.summary,
+    'TEST 3.8: check_offers_duplicates defines explicit outputSchema with results and summary'
+  );
+
+  // Assert top tier position (index <= 1)
+  const dedupeIndex = tools.findIndex((t: any) => t.name === 'check_offers_duplicates');
+  assert(dedupeIndex <= 1, `TEST 3.9: check_offers_duplicates is prioritized at position ${dedupeIndex + 1} of ${tools.length}`);
 
   const allHaveSecurity = tools.every(
     (t: any) =>
       Array.isArray(t.securitySchemes) &&
       t.securitySchemes.some((s: any) => s.type === 'oauth2' && s.scopes.includes('openid'))
   );
-  assert(allHaveSecurity, 'TEST 3.4: All tools declare securitySchemes: oauth2 with scopes');
+  assert(allHaveSecurity, 'TEST 3.10: All tools declare securitySchemes: oauth2 with scopes');
 
   // --------------------------------------------------------------------------
   // TEST 4: Protected Resource Metadata (RFC 9728) Live Verification

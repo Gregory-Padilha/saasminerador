@@ -68,8 +68,20 @@ export async function handleMcpRequest(
       case 'tools/list': {
         const toolsList = MCP_TOOLS.map((tool: any) => ({
           name: tool.name,
+          title: tool.title || tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
+          outputSchema: tool.outputSchema,
+          annotations: tool.annotations || {
+            readOnlyHint: true,
+            destructiveHint: false,
+            openWorldHint: false,
+          },
+          _meta: tool._meta || {
+            ui: {
+              visibility: ['model', 'app'],
+            },
+          },
           securitySchemes: [
             {
               type: 'oauth2',
@@ -111,6 +123,7 @@ export async function handleMcpRequest(
                   text: JSON.stringify(toolResult, null, 2),
                 },
               ],
+              structuredContent: toolResult,
               isError: false,
             },
           };

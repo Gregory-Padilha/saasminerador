@@ -17,11 +17,32 @@ export class AiToolError extends Error {
 
 export interface AiToolContract {
   name: string;
+  title?: string;
   description: string;
   inputSchema: {
     type: 'object';
     properties: Record<string, any>;
     required?: string[];
+    [key: string]: any;
+  };
+  outputSchema?: {
+    type: 'object';
+    properties?: Record<string, any>;
+    required?: string[];
+    [key: string]: any;
+  };
+  annotations?: {
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    openWorldHint?: boolean;
+    [key: string]: any;
+  };
+  _meta?: {
+    ui?: {
+      visibility?: string[];
+      [key: string]: any;
+    };
+    [key: string]: any;
   };
   execute: (args: Record<string, any>) => Promise<any>;
 }

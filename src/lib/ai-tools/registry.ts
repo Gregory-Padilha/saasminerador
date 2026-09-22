@@ -33,8 +33,19 @@ import { searchKnowledgeLibrary, knowledgeDb } from '@/lib/ai-brain/knowledge';
 export const AI_TOOLS_LIST: AiToolContract[] = [
   {
     name: 'search_offers',
+    title: 'Search Offers',
     description:
       "Search the user's Offer Miner catalog using factual filters such as niche, active ads, price, mapping state, scale tier and offer metadata. Use this before retrieving detailed information.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
+    _meta: {
+      ui: {
+        visibility: ['model', 'app'],
+      },
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -215,6 +226,122 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
         nextCursor,
         offers: summaryList,
       };
+    },
+  },
+  {
+    name: 'check_offers_duplicates',
+    title: 'Check Offer Duplicates',
+    description:
+      'Use esta ferramenta quando o usuário quiser verificar se uma ou mais ofertas candidatas já existem no catálogo Offer Miner. Aceita até 50 candidatos por chamada e retorna NEW, DUPLICATE ou POSSIBLE_DUPLICATE. Esta ferramenta é somente leitura e não altera o catálogo.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        candidates: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          description: 'Lista de ofertas candidatas para verificar duplicidade (1 a 50 candidatos)',
+          items: {
+            type: 'object',
+            properties: {
+              candidate_id: {
+                type: 'string',
+                description: 'Identificador único do candidato no lote (ex: cand-01, tmp-1)',
+              },
+              offer_name: {
+                type: 'string',
+                description: 'Nome da oferta ou título do produto anunciado',
+              },
+              advertiser: {
+                type: 'string',
+                description: 'Nome do anunciante ou página do Meta Ads',
+              },
+              landing_page_url: {
+                type: 'string',
+                description: 'URL de destino da landing page da oferta',
+              },
+              checkout_url: {
+                type: 'string',
+                description: 'URL do checkout/gateway de pagamento da oferta',
+              },
+              meta_ads_url: {
+                type: 'string',
+                description: 'URL da Biblioteca de Anúncios do Meta (Meta Ads Library)',
+              },
+              meta_ad_id: {
+                type: 'string',
+                description: 'ID numérico do anúncio no Meta Ads (ex: 9876543210)',
+              },
+            },
+            required: ['candidate_id'],
+          },
+        },
+      },
+      required: ['candidates'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        results: {
+          type: 'array',
+          description: 'Lista de resultados de duplicidade por candidato',
+          items: {
+            type: 'object',
+            properties: {
+              candidate_id: { type: 'string' },
+              status: {
+                type: 'string',
+                enum: ['NEW', 'DUPLICATE', 'POSSIBLE_DUPLICATE'],
+                description: 'Classificação factual de duplicidade',
+              },
+              matched_offer_id: {
+                type: 'string',
+                description: 'ID da oferta correspondente no catálogo (ou null)',
+              },
+              matched_offer_name: {
+                type: 'string',
+                description: 'Nome da oferta correspondente no catálogo (ou null)',
+              },
+              reason: {
+                type: 'string',
+                description: 'Critério factual da correspondência (ou null)',
+              },
+              confidence_basis: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Sinais técnicos confirmados (SAME_LANDING_PAGE, etc.)',
+              },
+            },
+            required: ['candidate_id', 'status'],
+          },
+        },
+        summary: {
+          type: 'object',
+          properties: {
+            checked: { type: 'number' },
+            new: { type: 'number' },
+            duplicates: { type: 'number' },
+            possible_duplicates: { type: 'number' },
+          },
+          required: ['checked', 'new', 'duplicates', 'possible_duplicates'],
+        },
+      },
+      required: ['results', 'summary'],
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
+    _meta: {
+      ui: {
+        visibility: ['model', 'app'],
+      },
+    },
+    execute: async (rawArgs: any) => {
+      const args = CheckOffersDuplicatesSchema.parse(rawArgs);
+      const { OfferDuplicateService } = await import('@/lib/offer/offer-duplicate-service');
+      return await OfferDuplicateService.checkMany(args);
     },
   },
   {
@@ -1296,57 +1423,35 @@ export const AI_TOOLS_LIST: AiToolContract[] = [
   },
   {
     name: 'check_offer_duplicate',
+    title: 'Check Single Offer Duplicate (Legacy)',
     description:
-      'Check a single candidate offer for duplicates against the Offer Miner database using canonical URLs, Meta ad IDs, and normalized names. Returns factual duplicate status (NEW, DUPLICATE, POSSIBLE_DUPLICATE) and confidence basis without subjective scores.',
+      '[Legado / Item Único] Verifica duplicidade de apenas uma oferta candidata contra o catálogo Offer Miner. Para novas rotinas e chamadas em lote, use preferencialmente check_offers_duplicates.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
+    _meta: {
+      ui: {
+        visibility: ['model', 'app'],
+      },
+    },
     inputSchema: {
       type: 'object',
       properties: {
-        offer_name: { type: ['string', 'null'], description: 'Candidate offer name or product title' },
-        advertiser: { type: ['string', 'null'], description: 'Advertiser name or Meta page name' },
-        landing_page_url: { type: ['string', 'null'], description: 'Landing page destination URL' },
-        checkout_url: { type: ['string', 'null'], description: 'Checkout gateway URL' },
-        meta_ads_url: { type: ['string', 'null'], description: 'Meta Ads Library URL' },
-        meta_ad_id: { type: ['string', 'null'], description: 'Meta Ad ID (numeric string)' },
-        meta_page_id: { type: ['string', 'null'], description: 'Meta Page ID (numeric string)' },
+        offer_name: { type: 'string', description: 'Candidate offer name or product title' },
+        advertiser: { type: 'string', description: 'Advertiser name or Meta page name' },
+        landing_page_url: { type: 'string', description: 'Landing page destination URL' },
+        checkout_url: { type: 'string', description: 'Checkout gateway URL' },
+        meta_ads_url: { type: 'string', description: 'Meta Ads Library URL' },
+        meta_ad_id: { type: 'string', description: 'Meta Ad ID (numeric string)' },
+        meta_page_id: { type: 'string', description: 'Meta Page ID (numeric string)' },
       },
     },
     execute: async (rawArgs: any) => {
       const args = CheckOfferDuplicateSchema.parse(rawArgs);
       const { OfferDuplicateService } = await import('@/lib/offer/offer-duplicate-service');
       return await OfferDuplicateService.checkOne(args);
-    },
-  },
-  {
-    name: 'check_offers_duplicates',
-    description:
-      'Check a batch of up to 50 candidate offers for duplicates against the Offer Miner database in a single call. Efficiently groups candidates, performs canonical URL & Meta Ad ID matching, intra-batch deduplication, and returns status (NEW, DUPLICATE, POSSIBLE_DUPLICATE) with factual reasons.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        candidates: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              candidate_id: { type: 'string', description: 'Unique identifier for this candidate in the batch' },
-              offer_name: { type: ['string', 'null'], description: 'Candidate offer name or product title' },
-              advertiser: { type: ['string', 'null'], description: 'Advertiser name or Meta page name' },
-              landing_page_url: { type: ['string', 'null'], description: 'Landing page destination URL' },
-              checkout_url: { type: ['string', 'null'], description: 'Checkout gateway URL' },
-              meta_ads_url: { type: ['string', 'null'], description: 'Meta Ads Library URL' },
-              meta_ad_id: { type: ['string', 'null'], description: 'Meta Ad ID (numeric string)' },
-            },
-            required: ['candidate_id'],
-          },
-          description: 'List of candidate offers to check (up to 50)',
-        },
-      },
-      required: ['candidates'],
-    },
-    execute: async (rawArgs: any) => {
-      const args = CheckOffersDuplicatesSchema.parse(rawArgs);
-      const { OfferDuplicateService } = await import('@/lib/offer/offer-duplicate-service');
-      return await OfferDuplicateService.checkMany(args);
     },
   },
 ];
