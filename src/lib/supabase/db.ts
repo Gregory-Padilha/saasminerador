@@ -45,6 +45,7 @@ import {
   MappingBatch,
   MappingJob,
   MappingSummary,
+  MappingType,
   ActiveAdsSource,
   CreativeMetricsUpdate,
   ScrapingBatch,
@@ -358,7 +359,8 @@ export const dbService = {
       });
     } else {
       // REGRA ARQUITETURAL: Supabase é o backend CANÔNICO OBRIGATÓRIO
-      const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+      const resolvedClient = (client && typeof client === 'object' && typeof client.from === 'function') ? client : null;
+      const activeClient = resolvedClient || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
 
       if (!isSupabaseConfigured() || !activeClient) {
         this._lastError = {
@@ -3909,13 +3911,17 @@ export const dbService = {
   // --------------------------------------------------------------------------
   // CENTRAL DE MAPEAMENTO - BATCHES & JOBS PERSISTENCE
   // --------------------------------------------------------------------------
-  async getMappingBatches(): Promise<MappingBatch[]> {
-    if (isSupabaseConfigured() && supabase) {
+  async getMappingBatches(client?: any, workspaceId?: string): Promise<MappingBatch[]> {
+    const activeClient = (client && typeof client === 'object' && typeof client.from === 'function')
+      ? client
+      : (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+
+    if (isSupabaseConfigured() && activeClient && typeof activeClient.from === 'function') {
       try {
-        const { data, error } = await supabase
-          .from('mapping_batches')
-          .select('*')
-          .order('created_at', { ascending: false });
+        let query = activeClient.from('mapping_batches').select('*');
+        const targetWs = workspaceId || (typeof client === 'string' ? client : 'ws_default_001');
+        if (targetWs) query = query.eq('workspace_id', targetWs);
+        const { data, error } = await query.order('created_at', { ascending: false });
         if (!error && data) return data as MappingBatch[];
       } catch (err) {
         console.warn('Supabase getMappingBatches fallback:', err);
@@ -3925,18 +3931,26 @@ export const dbService = {
     return batches.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
 
-  async getMappingBatchById(id: string): Promise<MappingBatch | null> {
-    const batches = await this.getMappingBatches();
+  async getMappingBatchById(id: string, client?: any): Promise<MappingBatch | null> {
+    const batches = await this.getMappingBatches(client);
     return batches.find((b) => b.id === id) || null;
   },
 
-  async saveMappingBatch(batch: MappingBatch): Promise<MappingBatch> {
+  async saveMappingBatch(batch: MappingBatch, client?: any, workspaceId?: string): Promise<MappingBatch> {
     const now = new Date().toISOString();
-    const fullBatch = { ...batch, updated_at: now };
+    const fullBatch = {
+      ...batch,
+      workspace_id: batch.workspace_id || workspaceId || 'ws_default_001',
+      updated_at: now,
+    };
 
-    if (isSupabaseConfigured() && supabase) {
+    const activeClient = (client && typeof client === 'object' && typeof client.from === 'function')
+      ? client
+      : (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+
+    if (isSupabaseConfigured() && activeClient && typeof activeClient.from === 'function') {
       try {
-        await supabase.from('mapping_batches').upsert(fullBatch);
+        await activeClient.from('mapping_batches').upsert(fullBatch);
       } catch (err) {
         console.warn('Supabase saveMappingBatch error:', err);
       }
@@ -3955,10 +3969,19 @@ export const dbService = {
     return fullBatch;
   },
 
-  async getMappingJobs(batchId?: string): Promise<MappingJob[]> {
-    if (isSupabaseConfigured() && supabase) {
+  async getMappingJobs(batchId?: string, workspaceIdOrClient?: any, maybeClient?: any): Promise<MappingJob[]> {
+    const activeClient = (maybeClient && typeof maybeClient === 'object' && typeof maybeClient.from === 'function')
+      ? maybeClient
+      : (workspaceIdOrClient && typeof workspaceIdOrClient === 'object' && typeof workspaceIdOrClient.from === 'function')
+      ? workspaceIdOrClient
+      : (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+
+    const targetWs = typeof workspaceIdOrClient === 'string' ? workspaceIdOrClient : 'ws_default_001';
+
+    if (isSupabaseConfigured() && activeClient && typeof activeClient.from === 'function') {
       try {
-        let query = supabase.from('mapping_jobs').select('*');
+        let query = activeClient.from('mapping_jobs').select('*');
+        if (targetWs) query = query.eq('workspace_id', targetWs);
         if (batchId) query = query.eq('batch_id', batchId);
         const { data, error } = await query.order('created_at', { ascending: true });
         if (!error && data) return data as MappingJob[];
@@ -3973,13 +3996,80 @@ export const dbService = {
     return jobs;
   },
 
-  async saveMappingJob(job: MappingJob): Promise<MappingJob> {
-    const now = new Date().toISOString();
-    const fullJob = { ...job, updated_at: now };
+  async getActiveMappingJobs(workspaceIdOrClient?: any, maybeClient?: any): Promise<MappingJob[]> {
+    const activeClient = (maybeClient && typeof maybeClient === 'object' && typeof maybeClient.from === 'function')
+      ? maybeClient
+      : (workspaceIdOrClient && typeof workspaceIdOrClient === 'object' && typeof workspaceIdOrClient.from === 'function')
+      ? workspaceIdOrClient
+      : (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
 
-    if (isSupabaseConfigured() && supabase) {
+    const targetWs = typeof workspaceIdOrClient === 'string' ? workspaceIdOrClient : 'ws_default_001';
+
+    if (isSupabaseConfigured() && activeClient && typeof activeClient.from === 'function') {
       try {
-        await supabase.from('mapping_jobs').upsert(fullJob);
+        let query = activeClient
+          .from('mapping_jobs')
+          .select('*')
+          .in('status', ['QUEUED', 'RUNNING']);
+        if (targetWs) query = query.eq('workspace_id', targetWs);
+        const { data, error } = await query.order('created_at', { ascending: true });
+        if (!error && data) return data as MappingJob[];
+      } catch (err) {
+        console.warn('Supabase getActiveMappingJobs fallback:', err);
+      }
+    }
+    const jobs = getLocal<MappingJob[]>(STORAGE_KEYS.MAPPING_JOBS, []);
+    return jobs.filter((j) => j.status === 'QUEUED' || j.status === 'RUNNING');
+  },
+
+  async getMappingJobByOfferId(offerId: string, type: MappingType, workspaceIdOrClient?: any, maybeClient?: any): Promise<MappingJob | null> {
+    const activeClient = (maybeClient && typeof maybeClient === 'object' && typeof maybeClient.from === 'function')
+      ? maybeClient
+      : (workspaceIdOrClient && typeof workspaceIdOrClient === 'object' && typeof workspaceIdOrClient.from === 'function')
+      ? workspaceIdOrClient
+      : (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+
+    const targetWs = typeof workspaceIdOrClient === 'string' ? workspaceIdOrClient : 'ws_default_001';
+
+    if (isSupabaseConfigured() && activeClient && typeof activeClient.from === 'function') {
+      try {
+        let query = activeClient
+          .from('mapping_jobs')
+          .select('*')
+          .eq('offer_id', offerId)
+          .eq('type', type);
+        if (targetWs) query = query.eq('workspace_id', targetWs);
+        const { data, error } = await query
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (!error && data && data.length > 0) return data[0] as MappingJob;
+      } catch (err) {
+        console.warn('Supabase getMappingJobByOfferId fallback:', err);
+      }
+    }
+    const jobs = getLocal<MappingJob[]>(STORAGE_KEYS.MAPPING_JOBS, []);
+    const matches = jobs
+      .filter((j) => j.offer_id === offerId && j.type === type)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return matches[0] || null;
+  },
+
+  async saveMappingJob(job: MappingJob, client?: any, workspaceId?: string): Promise<MappingJob> {
+    const now = new Date().toISOString();
+    const fullJob = {
+      ...job,
+      workspace_id: job.workspace_id || workspaceId || 'ws_default_001',
+      last_heartbeat_at: job.status === 'RUNNING' ? now : (job.last_heartbeat_at || now),
+      updated_at: now,
+    };
+
+    const activeClient = (client && typeof client === 'object' && typeof client.from === 'function')
+      ? client
+      : (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
+
+    if (isSupabaseConfigured() && activeClient && typeof activeClient.from === 'function') {
+      try {
+        await activeClient.from('mapping_jobs').upsert(fullJob);
       } catch (err) {
         console.warn('Supabase saveMappingJob error:', err);
       }
@@ -3992,7 +4082,7 @@ export const dbService = {
       updated = [...jobs];
       updated[idx] = fullJob;
     } else {
-      updated = [...jobs, fullJob];
+      updated = [fullJob, ...jobs];
     }
     setLocal(STORAGE_KEYS.MAPPING_JOBS, updated);
     return fullJob;

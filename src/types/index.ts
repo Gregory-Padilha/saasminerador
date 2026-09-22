@@ -80,10 +80,12 @@ export type OfferFrontendOptionType = 'single' | 'package' | 'bump' | 'subscript
 
 export type MappingType = 'LANDING_PAGE' | 'CHECKOUT';
 export type BatchStatus = 'QUEUED' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
-export type MappingJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'FAILED_TIMEOUT' | 'SKIPPED' | 'CANCELLED';
+export type MappingJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'FAILED_TIMEOUT' | 'SKIPPED' | 'CANCELLED' | 'STALE';
 
 export interface MappingBatch {
   id: string;
+  workspace_id?: string;
+  user_id?: string;
   name: string;
   type: MappingType;
   status: BatchStatus;
@@ -105,6 +107,8 @@ export interface MappingBatch {
 
 export interface MappingJob {
   id: string;
+  workspace_id?: string;
+  user_id?: string;
   batch_id: string;
   offer_id: string;
   offer_name: string;
@@ -116,8 +120,10 @@ export interface MappingJob {
   progress_percent?: number;
   error_message?: string | null;
   attempts: number;
+  last_heartbeat_at?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
+  details?: Record<string, any> | null;
   created_at: string;
   updated_at: string;
 }
@@ -300,6 +306,8 @@ export type OfferMappingOperationalState =
 export interface MappingSummary {
   total_offers: number;
   lp_pending: number;
+  lp_queued?: number;
+  lp_running?: number;
   lp_mapped: number;
   lp_failed: number;
 
@@ -313,11 +321,15 @@ export interface MappingSummary {
 
   // Checkout Mapping Breakdown for FOUND (Sum equals discovery_found)
   checkout_pending: number;
+  checkout_queued?: number;
+  checkout_running?: number;
   checkout_mapped: number;
   checkout_failed: number;
 
   failed_count: number;
   processing_count: number;
+  stale_count?: number;
+  reconciled_percent?: number;
 }
 
 export type OfferDecision = 'Ignorar' | 'Observar' | 'Interessante' | 'Deep Dive' | 'Modelar' | 'Testar' | 'Arquivada';

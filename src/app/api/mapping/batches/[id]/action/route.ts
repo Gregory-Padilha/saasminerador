@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireWorkspace } from '@/lib/auth/require-workspace';
 import {
   pauseMappingBatch,
   resumeMappingBatch,
@@ -18,6 +19,14 @@ export async function POST(
       return NextResponse.json({ error: 'ID do lote inválido.' }, { status: 400 });
     }
 
+    let wsCtx;
+    try {
+      wsCtx = await requireWorkspace();
+    } catch {
+      wsCtx = { workspaceId: 'ws_default_001', userId: null, client: undefined };
+    }
+    const client = (wsCtx as any).client;
+
     const body = await req.json();
     const action = body.action as 'pause' | 'resume' | 'cancel' | 'reprocess_failed';
 
@@ -29,13 +38,13 @@ export async function POST(
     let newJobs: any[] = [];
 
     if (action === 'pause') {
-      updatedBatch = await pauseMappingBatch(batchId);
+      updatedBatch = await pauseMappingBatch(batchId, client);
     } else if (action === 'resume') {
-      updatedBatch = await resumeMappingBatch(batchId);
+      updatedBatch = await resumeMappingBatch(batchId, client);
     } else if (action === 'cancel') {
-      updatedBatch = await cancelMappingBatch(batchId);
+      updatedBatch = await cancelMappingBatch(batchId, client);
     } else if (action === 'reprocess_failed') {
-      const result = await reprocessFailedMappingBatch(batchId);
+      const result = await reprocessFailedMappingBatch(batchId, client);
       if (result) {
         updatedBatch = result.batch;
         newJobs = result.jobs;

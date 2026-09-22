@@ -1,11 +1,24 @@
-import { NextResponse } from 'next/server';
-import { computeMappingSummary } from '@/lib/mapping/queue';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireWorkspace } from '@/lib/auth/require-workspace';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getMappingStats } from '@/lib/mapping/stats';
 
 export const runtime = 'nodejs';
 
-export async function GET() {
+export async function GET(_req: NextRequest) {
+  let wsCtx;
   try {
-    const summary = await computeMappingSummary();
+    wsCtx = await requireWorkspace();
+  } catch (authErr: any) {
+    return NextResponse.json(
+      { success: false, error: authErr.message || 'Não autorizado.', code: 'UNAUTHORIZED' },
+      { status: authErr.statusCode || 401 }
+    );
+  }
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    const summary = await getMappingStats(wsCtx.workspaceId, supabase);
     return NextResponse.json({ success: true, summary });
   } catch (err: any) {
     console.error('[GET /api/mapping/summary Error]:', err);

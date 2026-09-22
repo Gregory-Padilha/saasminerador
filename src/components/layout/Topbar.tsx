@@ -33,6 +33,30 @@ export function Topbar() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
   const [activeJob, setActiveJob] = useState<OfferAnalysisJob | null>(null);
+  const [activeMappingCount, setActiveMappingCount] = useState(0);
+
+  // Poll active mapping jobs count (P0 Requirement 37)
+  useEffect(() => {
+    let isMounted = true;
+    const checkMapping = async () => {
+      try {
+        const res = await fetch('/api/mapping/batches?activeOnly=true');
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && data.success) {
+            const count = (data.jobs || []).filter((j: any) => j.status === 'RUNNING' || j.status === 'QUEUED').length;
+            setActiveMappingCount(count);
+          }
+        }
+      } catch {}
+    };
+    checkMapping();
+    const interval = setInterval(checkMapping, 4000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     setHasSupabase(isSupabaseConfigured());
@@ -177,6 +201,18 @@ export function Topbar() {
                   : `${activeJob.progress_percent || 10}% · Analisando`}
               </span>
             </button>
+          )}
+
+          {/* Active Mapping Indicator Pill (Requirement 37) */}
+          {activeMappingCount > 0 && (
+            <Link
+              href="/mapping"
+              className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 transition shadow-sm"
+              title="Central de Mapeamento com jobs ativos. Clique para acompanhar."
+            >
+              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+              <span>● {activeMappingCount} {activeMappingCount === 1 ? 'mapeamento em andamento' : 'mapeamentos em andamento'}</span>
+            </Link>
           )}
 
           {/* Backend status indicator with accurate diagnostics (FASE 22) */}
