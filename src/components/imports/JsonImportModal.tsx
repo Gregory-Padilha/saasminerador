@@ -329,16 +329,18 @@ export function JsonImportModal({ isOpen, onClose, onSuccess }: JsonImportModalP
 
       setReportResult(result);
 
-      // Trigger celebratory confetti
-      try {
-        confetti({
-          particleCount: 90,
-          spread: 75,
-          origin: { y: 0.6 },
-          colors: ['#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'],
-        });
-      } catch {
-        // ignore
+      // Trigger celebratory confetti only if new offers were actually persisted
+      if (result.newOffersCount > 0) {
+        try {
+          confetti({
+            particleCount: 90,
+            spread: 75,
+            origin: { y: 0.6 },
+            colors: ['#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'],
+          });
+        } catch {
+          // ignore
+        }
       }
 
       if (onSuccess) {
@@ -371,28 +373,20 @@ export function JsonImportModal({ isOpen, onClose, onSuccess }: JsonImportModalP
         index: item.index,
         offer_name: item.normalized.offer_name,
         advertiser: item.normalized.advertiser,
-        validation_status: item.validation.status,
-        errors: item.errors,
+        status: item.validation.status,
+        reasons: item.validation.reasons,
         warnings: item.warnings,
-        match_reason: item.matchReason,
-        source_field_map: item.sourceFieldMap,
-        raw_data: item.raw,
+        errors: item.errors,
       })),
     };
-
     const blob = new Blob([JSON.stringify(reportPayload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `relatorio_auditoria_importacao_${Date.now()}.json`;
-    document.body.appendChild(a);
+    a.download = `relatorio_importacao_${Date.now()}.json`;
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
-
-  if (!isOpen) return null;
-
   // Filter items valid for import
   const validItemsToImport = (parseResult?.previewItems || []).filter((item) => {
     if (!item.validation.isValid) return false;
@@ -402,72 +396,81 @@ export function JsonImportModal({ isOpen, onClose, onSuccess }: JsonImportModalP
     return true;
   });
 
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
-        {/* ================================================================== */}
+    <div
+      className={cn(
+        'fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md transition-opacity duration-200',
+        isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      )}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSaving) onClose();
+      }}
+    >
+      <div className="relative w-full max-w-5xl max-h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden text-slate-100 animate-in zoom-in-95 duration-200">
         {/* MODAL HEADER */}
-        {/* ================================================================== */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800/80 bg-slate-950/40">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shadow-inner">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shadow-lg shadow-amber-500/10">
               <FileCode className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                  IMPORTAR OFERTAS VIA JSON
-                </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                  JSON v2.0 Intelligent
+              <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                <span>Importador Inteligente de Ofertas</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  JSON Multi-Schema
                 </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Detecção automática de documentos de mineração, extração de coleções, dot-paths e validação segura.
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Importação segura com persistência canônica e isolamento por workspace.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Download Template Button */}
-            <button
-              type="button"
-              onClick={downloadJsonImportTemplate}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition active:scale-95"
-              title="Baixar exemplo com 2 ofertas válidas"
-            >
-              <Download className="w-3.5 h-3.5 text-amber-400" />
-              <span>Baixar Exemplo JSON</span>
-            </button>
-
-            {/* Close Button */}
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition disabled:opacity-50 cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* ================================================================== */}
         {/* MODAL BODY */}
-        {/* ================================================================== */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Step A: If reportResult exists -> Show Final Success Screen */}
           {reportResult ? (
             <div className="py-6 flex flex-col items-center text-center max-w-xl mx-auto space-y-6">
-              <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shadow-xl shadow-emerald-500/10 animate-in zoom-in-50 duration-300">
-                <CheckCircle2 className="w-10 h-10" />
-              </div>
+              {reportResult.newOffersCount > 0 ? (
+                <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shadow-xl shadow-emerald-500/10 animate-in zoom-in-50 duration-300">
+                  <CheckCircle2 className="w-10 h-10" />
+                </div>
+              ) : reportResult.ignoredDuplicatesCount > 0 ? (
+                <div className="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shadow-xl shadow-amber-500/10 animate-in zoom-in-50 duration-300">
+                  <Info className="w-10 h-10" />
+                </div>
+              ) : (
+                <div className="w-20 h-20 rounded-3xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center shadow-xl shadow-rose-500/10 animate-in zoom-in-50 duration-300">
+                  <XCircle className="w-10 h-10" />
+                </div>
+              )}
 
               <div>
                 <h3 className="text-2xl font-bold text-white tracking-tight">
-                  IMPORTAÇÃO CONCLUÍDA
+                  {reportResult.newOffersCount > 0
+                    ? 'IMPORTAÇÃO CONCLUÍDA'
+                    : reportResult.ignoredDuplicatesCount > 0
+                    ? 'NENHUMA NOVA OFERTA INSERIDA'
+                    : 'FALHA NA IMPORTAÇÃO'}
                 </h3>
                 <p className="text-sm text-slate-400 mt-1">
-                  {reportResult.totalRecords} registros analisados e processados com segurança.
+                  {reportResult.newOffersCount > 0
+                    ? `${reportResult.newOffersCount} nova(s) oferta(s) gravada(s) e confirmadas no Supabase.`
+                    : reportResult.ignoredDuplicatesCount > 0
+                    ? `${reportResult.ignoredDuplicatesCount} oferta(s) já existiam no catálogo canônico do seu workspace.`
+                    : 'Nenhuma oferta pôde ser validada ou persistida.'}
                 </p>
               </div>
 
@@ -511,29 +514,48 @@ export function JsonImportModal({ isOpen, onClose, onSuccess }: JsonImportModalP
               </div>
 
               {/* Notice of Non-mapped status */}
-              <div className="p-4 rounded-2xl bg-blue-950/30 border border-blue-800/40 text-left text-xs text-blue-300 flex items-start gap-3">
-                <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-semibold text-white block">Regra Canônica Aplicada:</span>
-                  Todas as novas ofertas nasceram como <strong className="text-blue-200">LP NÃO MAPEADA</strong> e já estão disponíveis na Central de Mapeamentos.
+              {reportResult.newOffersCount > 0 && (
+                <div className="p-4 rounded-2xl bg-blue-950/30 border border-blue-800/40 text-left text-xs text-blue-300 flex items-start gap-3">
+                  <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold text-white block">Persistência Canônica Comprovada:</span>
+                    As ofertas foram confirmadas via read-back no banco de dados e nasceram como <strong className="text-blue-200">LP NÃO MAPEADA</strong>.
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Actions */}
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    router.push('/offers');
-                    router.refresh();
-                  }}
-                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-500/20 transition active:scale-95 flex items-center gap-2 cursor-pointer"
-                >
-                  <Layers className="w-4 h-4" />
-                  <span>Ver Ofertas</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+                {reportResult.newOffersCount > 0 && reportResult.persistedOfferIds && reportResult.persistedOfferIds.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      const targetIds = reportResult.persistedOfferIds?.join(',') || '';
+                      router.push(`/offers?ids=${targetIds}`);
+                      router.refresh();
+                    }}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-emerald-500/20 transition active:scale-95 flex items-center gap-2 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Ver {reportResult.newOffersCount} Ofertas Importadas</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      router.push('/offers');
+                      router.refresh();
+                    }}
+                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-500/20 transition active:scale-95 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Layers className="w-4 h-4" />
+                    <span>Ir para o Catálogo</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
 
                 <button
                   type="button"

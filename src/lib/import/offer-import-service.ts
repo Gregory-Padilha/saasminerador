@@ -300,6 +300,9 @@ export class OfferImportService {
     existingOffers?: Offer[];
     globalMetadata?: Record<string, any>;
     clientImportRequestId?: string;
+    workspaceId?: string;
+    userId?: string;
+    client?: any;
   }): Promise<ImportBatchExecutionResult> {
     const {
       batchType,
@@ -308,6 +311,9 @@ export class OfferImportService {
       existingOffers = [],
       globalMetadata,
       clientImportRequestId,
+      workspaceId,
+      userId,
+      client,
     } = params;
 
     // Idempotency Guard: if this exact request ID was already processed, return previous result
@@ -338,7 +344,15 @@ export class OfferImportService {
       }
 
       const data = await res.json();
-      const executionResult: ImportBatchExecutionResult = data.result;
+      if (data.status === 'ERROR') {
+        throw new Error(data.error || 'Falha na persistência da importação no servidor.');
+      }
+
+      const executionResult: ImportBatchExecutionResult = {
+        ...data.result,
+        persistedOfferIds: data.persisted_offer_ids || (data.persistedOffers ? data.persistedOffers.map((o: any) => o.id) : []),
+        persistedOffers: data.persistedOffers || [],
+      };
 
       // Authoritatively update client local storage with returned canonical offers
       if (Array.isArray(data.persistedOffers) && data.persistedOffers.length > 0) {
@@ -432,10 +446,18 @@ export class OfferImportService {
       };
     });
 
-    const result = await dbService.executeImportBatch(displayFileName, rowsToImport, 1, {
-      import_type: batchType,
-      metadata: globalMetadata,
-    });
+    const result = await dbService.executeImportBatch(
+      displayFileName,
+      rowsToImport,
+      1,
+      {
+        import_type: batchType,
+        metadata: globalMetadata,
+        workspace_id: workspaceId,
+        user_id: userId,
+      },
+      client
+    );
 
     const executionResult: ImportBatchExecutionResult = {
       batchId: result.batch.id,
@@ -453,6 +475,8 @@ export class OfferImportService {
           name: p.normalized.offer_name || '<<Sem Nome>>',
           message: p.errors.join('; '),
         })),
+      persistedOfferIds: result.persisted_offer_ids,
+      persistedOffers: result.persistedOffers,
     };
 
     // Cache result if idempotency key was supplied

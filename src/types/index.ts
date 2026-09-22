@@ -1246,6 +1246,8 @@ export interface Offer {
 export interface OfferSnapshot {
   id: string;
   offer_id: string;
+  workspace_id?: string;
+  user_id?: string;
   active_ads_count?: number | null;
   estimated_unique_creatives?: number | null;
   days_running?: number | null;
@@ -1257,6 +1259,7 @@ export interface OfferSnapshot {
 
 export interface ImportBatch {
   id: string;
+  workspace_id?: string;
   user_id?: string;
   file_name: string;
   import_type?: 'XLSX' | 'JSON_FILE' | 'JSON_PASTE' | 'MANUAL';
@@ -1277,6 +1280,8 @@ export interface ImportBatch {
 export interface ImportRow {
   id: string;
   import_batch_id: string;
+  workspace_id?: string;
+  user_id?: string;
   sheet_name: string;
   row_number: number;
   raw_data: Record<string, any>;

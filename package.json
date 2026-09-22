@@ -8,6 +8,7 @@
     "start": "next start",
     "mcp:stdio": "tsx scripts/offer-miner-mcp.ts",
     "security:audit": "tsx scripts/security_audit.ts",
+    "test:import": "node --env-file=.env node_modules/.bin/tsx scripts/test_canonical_import.ts",
     "lint": "eslint"
   },
   "dependencies": {

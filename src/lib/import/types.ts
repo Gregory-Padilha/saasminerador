@@ -198,4 +198,6 @@ export interface ImportBatchExecutionResult {
   ignoredDuplicatesCount: number;
   invalidCount: number;
   errorsList: Array<{ index: number; name: string; message: string }>;
+  persistedOfferIds?: string[];
+  persistedOffers?: Offer[];
 }

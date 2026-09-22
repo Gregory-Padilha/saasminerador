@@ -591,8 +591,22 @@ export const dbService = {
     fileName: string,
     previewRows: ImportPreviewRow[],
     sheetCount: number = 1,
-    options?: { import_type?: 'XLSX' | 'JSON_FILE' | 'JSON_PASTE' | 'MANUAL'; metadata?: Record<string, any> }
-  ): Promise<{ batch: ImportBatch; newCount: number; updatedCount: number; ignoredCount: number; persistedOffers?: Offer[] }> {
+    options?: {
+      import_type?: 'XLSX' | 'JSON_FILE' | 'JSON_PASTE' | 'MANUAL';
+      metadata?: Record<string, any>;
+      workspace_id?: string;
+      user_id?: string;
+    },
+    client?: any
+  ): Promise<{
+    batch: ImportBatch;
+    newCount: number;
+    updatedCount: number;
+    ignoredCount: number;
+    persistedOffers?: Offer[];
+    persisted_offer_ids: string[];
+    rejectedCount: number;
+  }> {
     const now = new Date().toISOString();
     const batchId = generateId();
     const isJsonBatch =
@@ -600,6 +614,10 @@ export const dbService = {
       options?.import_type === 'JSON_PASTE' ||
       fileName.toLowerCase().endsWith('.json') ||
       fileName.includes('JSON');
+
+    const resolvedWorkspaceId = options?.workspace_id || 'ws_default_001';
+    const resolvedUserId = options?.user_id || null;
+    const activeClient = client || (typeof window !== 'undefined' ? supabase : (createAdminSupabaseClient() || supabase));
 
     let newCount = 0;
     let updatedCount = 0;
@@ -615,24 +633,23 @@ export const dbService = {
     for (const item of previewRows) {
       const rowId = generateId();
 
-      if (item.hasErrors) {
+      if (item.hasErrors || item.validation?.status === 'INVALIDA' || item.validation?.isValid === false) {
         errorCount++;
+        invalidCount++;
         importRowsToInsert.push({
           id: rowId,
           import_batch_id: batchId,
+          workspace_id: resolvedWorkspaceId,
+          user_id: resolvedUserId || undefined,
           sheet_name: item.sheetName || 'Sheet1',
           row_number: item.rowIndex,
           raw_data: item.raw,
           normalized_data: item.normalized as Record<string, any>,
           import_status: 'error',
-          error_message: item.errors.join('; '),
+          error_message: (item.errors && item.errors.length > 0) ? item.errors.join('; ') : 'Validation failed',
           created_at: now,
         });
         continue;
-      }
-
-      if (item.validation.status === 'INVALIDA') {
-        invalidCount++;
       }
 
       if (item.isDuplicate) {
@@ -641,6 +658,8 @@ export const dbService = {
           importRowsToInsert.push({
             id: rowId,
             import_batch_id: batchId,
+            workspace_id: resolvedWorkspaceId,
+            user_id: resolvedUserId || undefined,
             sheet_name: item.sheetName || 'Sheet1',
             row_number: item.rowIndex,
             raw_data: item.raw,
@@ -660,6 +679,8 @@ export const dbService = {
           const currentIncomingSnapshot: OfferSnapshot = {
             id: generateId(),
             offer_id: existing.id,
+            workspace_id: resolvedWorkspaceId,
+            user_id: resolvedUserId || undefined,
             active_ads_count: item.normalized.active_ads_count ?? existing.active_ads_count ?? null,
             estimated_unique_creatives: item.normalized.estimated_unique_creatives ?? existing.estimated_unique_creatives ?? null,
             days_running: item.normalized.days_running ?? existing.days_running ?? null,
@@ -731,6 +752,8 @@ export const dbService = {
           importRowsToInsert.push({
             id: rowId,
             import_batch_id: batchId,
+            workspace_id: resolvedWorkspaceId,
+            user_id: resolvedUserId || undefined,
             sheet_name: item.sheetName || 'Sheet1',
             row_number: item.rowIndex,
             raw_data: item.raw,
@@ -768,9 +791,12 @@ export const dbService = {
       // Persistence Gate: Reject records without minimal identity
       if (!hasValidName && !hasLp && !hasMeta && !hasChk) {
         invalidCount++;
+        errorCount++;
         importRowsToInsert.push({
           id: rowId,
           import_batch_id: batchId,
+          workspace_id: resolvedWorkspaceId,
+          user_id: resolvedUserId || undefined,
           sheet_name: item.sheetName || 'Sheet1',
           row_number: item.rowIndex,
           raw_data: item.raw,
@@ -793,6 +819,8 @@ export const dbService = {
 
       const newOffer: Offer = {
         id: newOfferId,
+        workspace_id: resolvedWorkspaceId,
+        user_id: resolvedUserId || undefined,
         source: item.normalized.source || (isJsonBatch ? (options?.import_type || 'JSON_IMPORT') : 'XLSX'),
         product_name: (safeProductName as any) ?? '',
         offer_name: (safeProductName as any) ?? '',
@@ -866,6 +894,8 @@ export const dbService = {
       snapshotsToInsert.push({
         id: generateId(),
         offer_id: newOfferId,
+        workspace_id: resolvedWorkspaceId,
+        user_id: resolvedUserId || undefined,
         active_ads_count: newOffer.active_ads_count,
         estimated_unique_creatives: newOffer.estimated_unique_creatives,
         days_running: newOffer.days_running,
@@ -878,6 +908,8 @@ export const dbService = {
       importRowsToInsert.push({
         id: rowId,
         import_batch_id: batchId,
+        workspace_id: resolvedWorkspaceId,
+        user_id: resolvedUserId || undefined,
         sheet_name: item.sheetName || 'Sheet1',
         row_number: item.rowIndex,
         raw_data: item.raw,
@@ -890,6 +922,8 @@ export const dbService = {
 
     const batchRecord: ImportBatch = {
       id: batchId,
+      workspace_id: resolvedWorkspaceId,
+      user_id: resolvedUserId || undefined,
       file_name: fileName,
       import_type: options?.import_type || (isJsonBatch ? (fileName.includes('colado') || fileName.includes('PASTE') ? 'JSON_PASTE' : 'JSON_FILE') : 'XLSX'),
       sheet_count: sheetCount,
@@ -904,72 +938,141 @@ export const dbService = {
       created_at: now,
     };
 
-    // Supabase persist
-    if (isSupabaseConfigured() && supabase) {
-      try {
-        const { data: user } = await supabase.auth.getUser();
-        const userId = user?.user?.id || null;
+    // 1. Supabase Canonical Persistence
+    if (isSupabaseConfigured() && activeClient) {
+      // 1.1 Inserir Batch
+      const { error: batchErr } = await activeClient
+        .from('import_batches')
+        .insert({
+          ...batchRecord,
+          workspace_id: resolvedWorkspaceId,
+          user_id: resolvedUserId,
+        });
 
-        await supabase.from('import_batches').insert({ ...batchRecord, user_id: userId });
+      if (batchErr) {
+        console.error('[executeImportBatch Error on import_batches]:', batchErr);
+        throw new Error(`[IMPORT_DB_FAILED]: Falha ao registrar lote no Supabase: ${batchErr.message} (${batchErr.code})`);
+      }
 
-        if (importRowsToInsert.length > 0) {
-          await supabase.from('import_rows').insert(importRowsToInsert);
+      // 1.2 Inserir Ofertas
+      if (offersToInsert.length > 0) {
+        const payloadOffers = offersToInsert.map((o) => ({
+          ...o,
+          workspace_id: resolvedWorkspaceId,
+          user_id: resolvedUserId,
+        }));
+
+        const { error: offersErr } = await activeClient
+          .from('offers')
+          .insert(payloadOffers);
+
+        if (offersErr) {
+          console.error('[executeImportBatch Error on offers]:', offersErr);
+          throw new Error(`[IMPORT_DB_FAILED]: Falha ao inserir ofertas no Supabase: ${offersErr.message} (${offersErr.code})`);
         }
+      }
 
-        if (offersToInsert.length > 0) {
-          await supabase.from('offers').insert(offersToInsert.map((o) => ({ ...o, user_id: userId })));
+      // 1.3 Inserir Linhas de Importação
+      if (importRowsToInsert.length > 0) {
+        const { error: rowsErr } = await activeClient
+          .from('import_rows')
+          .insert(importRowsToInsert);
+        if (rowsErr) {
+          console.warn('[executeImportBatch Warning on import_rows]:', rowsErr.message);
         }
+      }
 
-        for (const updateItem of offersToUpdate) {
-          await supabase.from('offers').update(updateItem.changes).eq('id', updateItem.id);
+      // 1.4 Atualizar Ofertas Existentes
+      for (const updateItem of offersToUpdate) {
+        const { error: updErr } = await activeClient
+          .from('offers')
+          .update(updateItem.changes)
+          .eq('id', updateItem.id)
+          .eq('workspace_id', resolvedWorkspaceId);
+        if (updErr) {
+          console.warn('[executeImportBatch Warning on offers update]:', updErr.message);
         }
+      }
 
-        if (snapshotsToInsert.length > 0) {
-          await supabase.from('offer_snapshots').insert(snapshotsToInsert);
+      // 1.5 Inserir Snapshots
+      if (snapshotsToInsert.length > 0) {
+        const { error: snapErr } = await activeClient
+          .from('offer_snapshots')
+          .insert(snapshotsToInsert);
+        if (snapErr) {
+          console.warn('[executeImportBatch Warning on offer_snapshots]:', snapErr.message);
         }
-      } catch (err) {
-        console.error('Supabase batch insert error:', err);
       }
     }
 
-    // Local Storage sync
-    let localOffers = getLocal<Offer[]>(STORAGE_KEYS.OFFERS, []);
-    localOffers = localOffers.map((o) => {
-      const update = offersToUpdate.find((u) => u.id === o.id);
-      return update ? ({ ...o, ...update.changes } as Offer) : o;
-    });
-    localOffers = [...(offersToInsert as Offer[]), ...localOffers];
-    setLocal(STORAGE_KEYS.OFFERS, localOffers);
+    // 2. CANONICAL DB READ-BACK VERIFICATION DIRECTLY FROM SUPABASE
+    let confirmedPersistedOffers: Offer[] = [];
+    let confirmedOfferIds: string[] = [];
 
-    const localSnapshots = getLocal<OfferSnapshot[]>(STORAGE_KEYS.SNAPSHOTS, []);
-    setLocal(STORAGE_KEYS.SNAPSHOTS, [...(snapshotsToInsert as OfferSnapshot[]), ...localSnapshots]);
+    if (offersToInsert.length > 0 && isSupabaseConfigured() && activeClient) {
+      const idsToCheck = offersToInsert.map((o) => o.id!).filter(Boolean);
+      const { data: readBackData, error: readBackErr } = await activeClient
+        .from('offers')
+        .select(`
+          id,
+          product_name,
+          advertiser,
+          workspace_id,
+          status,
+          created_at,
+          source_import_batch_id
+        `)
+        .in('id', idsToCheck)
+        .eq('workspace_id', resolvedWorkspaceId);
 
-    const localBatches = getLocal<ImportBatch[]>(STORAGE_KEYS.BATCHES, []);
-    setLocal(STORAGE_KEYS.BATCHES, [batchRecord, ...localBatches]);
-
-    const localRows = getLocal<ImportRow[]>(STORAGE_KEYS.IMPORT_ROWS, []);
-    setLocal(STORAGE_KEYS.IMPORT_ROWS, [...importRowsToInsert, ...localRows]);
-
-    // PARTE 23 & 24: Read-after-write verification on canonical offers
-    const persistedCanonicalOffers = getLocal<Offer[]>(STORAGE_KEYS.OFFERS, []);
-    for (const off of offersToInsert) {
-      const verified = persistedCanonicalOffers.find((p) => p.id === off.id);
-      if (!verified) {
-        console.error(`[executeImportBatch Verification Failed]: Offer ${off.id} (${off.product_name}) was not found in canonical store.`);
-        const targetRow = importRowsToInsert.find((r) => r.offer_id === off.id);
-        if (targetRow) {
-          targetRow.import_status = 'error';
-          targetRow.error_message = 'FAILED_PERSISTENCE: Oferta canônica não pôde ser relida após gravação.';
-        }
+      if (readBackErr) {
+        throw new Error(`[IMPORT_READBACK_FAILED]: Erro ao reler ofertas persistidas no banco: ${readBackErr.message} (${readBackErr.code})`);
       }
+
+      confirmedPersistedOffers = (readBackData || []) as Offer[];
+      confirmedOfferIds = confirmedPersistedOffers.map((o) => o.id);
+
+      if (confirmedPersistedOffers.length === 0) {
+        throw new Error(`[IMPORT_READBACK_FAILED]: Nenhuma das ${offersToInsert.length} ofertas foi encontrada no banco após o commit.`);
+      }
+
+      if (confirmedPersistedOffers.length < offersToInsert.length) {
+        console.warn(`[executeImportBatch]: Read-back confirmou ${confirmedPersistedOffers.length}/${offersToInsert.length} ofertas.`);
+      }
+    } else {
+      confirmedOfferIds = offersToInsert.map((o) => o.id!).filter(Boolean);
+      confirmedPersistedOffers = offersToInsert as Offer[];
+    }
+
+    // 3. Client Local Storage Sync (Browser only resilience)
+    if (typeof window !== 'undefined') {
+      let localOffers = getLocal<Offer[]>(STORAGE_KEYS.OFFERS, []);
+      localOffers = localOffers.map((o) => {
+        const update = offersToUpdate.find((u) => u.id === o.id);
+        return update ? ({ ...o, ...update.changes } as Offer) : o;
+      });
+      const newIds = new Set(confirmedOfferIds);
+      localOffers = [...confirmedPersistedOffers, ...localOffers.filter((o) => !newIds.has(o.id))];
+      setLocal(STORAGE_KEYS.OFFERS, localOffers);
+
+      const localSnapshots = getLocal<OfferSnapshot[]>(STORAGE_KEYS.SNAPSHOTS, []);
+      setLocal(STORAGE_KEYS.SNAPSHOTS, [...(snapshotsToInsert as OfferSnapshot[]), ...localSnapshots]);
+
+      const localBatches = getLocal<ImportBatch[]>(STORAGE_KEYS.BATCHES, []);
+      setLocal(STORAGE_KEYS.BATCHES, [batchRecord, ...localBatches]);
+
+      const localRows = getLocal<ImportRow[]>(STORAGE_KEYS.IMPORT_ROWS, []);
+      setLocal(STORAGE_KEYS.IMPORT_ROWS, [...importRowsToInsert, ...localRows]);
     }
 
     return {
       batch: batchRecord,
-      newCount,
+      newCount: confirmedOfferIds.length,
       updatedCount,
       ignoredCount,
-      persistedOffers: offersToInsert as Offer[],
+      persistedOffers: confirmedPersistedOffers,
+      persisted_offer_ids: confirmedOfferIds,
+      rejectedCount: errorCount + invalidCount,
     };
   },
 

@@ -135,15 +135,35 @@ export default function ImportsPage() {
   const handleConfirmImport = async (rowsToImport: ImportPreviewRow[]) => {
     setIsSaving(true);
     try {
-      const result = await dbService.executeImportBatch(currentFileName, rowsToImport);
+      const res = await fetch('/api/offers/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          batchType: 'XLSX',
+          fileName: currentFileName,
+          previewRows: rowsToImport,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Falha ao salvar no banco de dados.');
+      }
+
+      const data = await res.json();
+      if (data.status === 'ERROR') {
+        throw new Error(data.error || 'Falha ao salvar ofertas no banco canônico.');
+      }
+
+      const result = data.result;
 
       setReportData({
         fileName: currentFileName,
         totalRows: rowsToImport.length,
-        newCount: result.newCount,
-        updatedCount: result.updatedCount,
-        ignoredCount: result.ignoredCount,
-        invalidCount: result.batch.invalid_rows,
+        newCount: data.inserted ?? result?.newOffersCount ?? 0,
+        updatedCount: data.updated ?? result?.updatedOffersCount ?? 0,
+        ignoredCount: data.duplicates ?? result?.ignoredDuplicatesCount ?? 0,
+        invalidCount: data.rejected ?? result?.invalidCount ?? 0,
       });
 
       // Reset import session and reload data

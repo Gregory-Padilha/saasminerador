@@ -19,7 +19,7 @@ import { OfferEditModal } from '@/components/offers/OfferEditModal';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast } from '@/components/ui/Toast';
-import { UploadCloud, Layers, ChevronDown, Flame } from 'lucide-react';
+import { UploadCloud, Layers, ChevronDown, Flame, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { OfferCard } from '@/components/offers/OfferCard';
@@ -37,6 +37,10 @@ function OffersPageContent() {
   const initialOnlyFavorites = searchParams.get('favorites') === 'true' || initialQuickFilter === 'favorites';
   const initialOnlyWatching = searchParams.get('watching') === 'true' || initialQuickFilter === 'watching';
   const initialOnlyDeepDive = searchParams.get('deep_dive') === 'true' || initialQuickFilter === 'deep_dive';
+  const idsRaw = searchParams.get('ids');
+  const targetIds = useMemo(() => {
+    return idsRaw ? idsRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  }, [idsRaw]);
 
   const [offers, setOffers] = useState<Offer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -186,6 +190,11 @@ function OffersPageContent() {
   const filteredOffers = useMemo(() => {
     return offers
       .filter((offer) => {
+        // 0. Filter by explicit IDs (e.g. from Ver Ofertas Importadas)
+        if (targetIds.length > 0 && !targetIds.includes(offer.id)) {
+          return false;
+        }
+
         // 1. Search Query
         if (filters.search) {
           const q = filters.search.toLowerCase();
@@ -647,6 +656,28 @@ function OffersPageContent() {
             <ImportDropdown onOpenJsonImport={() => setIsJsonModalOpen(true)} />
           }
         />
+
+        {/* Newly Imported Offers Filter Banner */}
+        {targetIds.length > 0 && (
+          <div className="mb-4 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                Exibindo <strong>{filteredOffers.length}</strong> de {targetIds.length} ofertas recém-importadas.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                window.history.replaceState(null, '', window.location.pathname);
+                window.location.reload();
+              }}
+              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 font-semibold transition cursor-pointer"
+            >
+              Ver todo o catálogo ({offers.length})
+            </button>
+          </div>
+        )}
 
         {/* Filters Bar with Cards/Table Toggle */}
         <OfferFilters
